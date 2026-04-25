@@ -1,5 +1,5 @@
 namespace DotNetFoundryLLM.Inference;
 
-// This namespace is reserved for Phase 2+ implementation.
-// Placeholder to ensure the project compiles.
+// Phase 4 implementation lives in KvCache.cs and LlamaLanguageModel.cs.
+// This file is intentionally empty.
 internal static class Placeholder { }

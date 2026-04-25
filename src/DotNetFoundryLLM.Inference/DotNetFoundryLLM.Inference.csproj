@@ -8,7 +8,9 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.Core/DotNetFoundryLLM.Core.csproj" />
     <ProjectReference Include="../DotNetFoundryLLM.Tensors/DotNetFoundryLLM.Tensors.csproj" />
     <ProjectReference Include="../DotNetFoundryLLM.Sampling/DotNetFoundryLLM.Sampling.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.Architectures/DotNetFoundryLLM.Architectures.csproj" />
   </ItemGroup>
 </Project>

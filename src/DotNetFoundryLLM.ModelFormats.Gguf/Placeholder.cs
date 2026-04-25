@@ -1,5 +1,5 @@
 namespace DotNetFoundryLLM.ModelFormats.Gguf;
 
-// This namespace is reserved for Phase 2+ implementation.
-// Placeholder to ensure the project compiles.
+// Phase 4 implementation lives in GgufReader.cs, GgufFile.cs, GgufModelLoader.cs, etc.
+// This file is intentionally empty.
 internal static class Placeholder { }
