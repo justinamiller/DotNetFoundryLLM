@@ -6,5 +6,6 @@
   <ItemGroup>
     <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />
     <ProjectReference Include="../DotNetFoundryLLM.Core/DotNetFoundryLLM.Core.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.Tensors/DotNetFoundryLLM.Tensors.csproj" />
   </ItemGroup>
 </Project>

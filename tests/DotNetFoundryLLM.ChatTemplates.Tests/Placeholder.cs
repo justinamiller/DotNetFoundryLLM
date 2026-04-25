@@ -1,3 +1,5 @@
+using DotNetFoundryLLM.Abstractions;
+using DotNetFoundryLLM.ChatTemplates;
 using Xunit;
 
 namespace DotNetFoundryLLM.ChatTemplates.Tests;

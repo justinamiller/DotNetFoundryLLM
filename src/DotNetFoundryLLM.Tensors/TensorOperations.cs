@@ -124,6 +124,20 @@ public static class TensorOperations
         }
     }
 
+    /// <summary>Returns the index of the maximum element in the span.</summary>
+    /// <exception cref="ArgumentException">Thrown when the span is empty.</exception>
+    public static int ArgMax(ReadOnlySpan<float> x)
+    {
+        if (x.IsEmpty) throw new ArgumentException("Span must not be empty.", nameof(x));
+        int best = 0;
+        for (int i = 1; i < x.Length; i++)
+        {
+            if (x[i] > x[best]) best = i;
+        }
+
+        return best;
+    }
+
     /// <summary>
     /// Applies Rotary Position Embeddings (RoPE) to query/key vectors in-place.
     /// </summary>

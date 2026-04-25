@@ -1,3 +1,5 @@
+using DotNetFoundryLLM.Abstractions;
+using DotNetFoundryLLM.Sampling;
 using Xunit;
 
 namespace DotNetFoundryLLM.Sampling.Tests;
