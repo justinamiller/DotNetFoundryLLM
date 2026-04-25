@@ -1,0 +1,48 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />
+    <Project Path="src/DotNetFoundryLLM.Core/DotNetFoundryLLM.Core.csproj" />
+    <Project Path="src/DotNetFoundryLLM.Tensors/DotNetFoundryLLM.Tensors.csproj" />
+    <Project Path="src/DotNetFoundryLLM.Quantization/DotNetFoundryLLM.Quantization.csproj" />
+    <Project Path="src/DotNetFoundryLLM.Tokenization/DotNetFoundryLLM.Tokenization.csproj" />
+    <Project Path="src/DotNetFoundryLLM.ModelFormats.Gguf/DotNetFoundryLLM.ModelFormats.Gguf.csproj" />
+    <Project Path="src/DotNetFoundryLLM.ModelFormats.SafeTensors/DotNetFoundryLLM.ModelFormats.SafeTensors.csproj" />
+    <Project Path="src/DotNetFoundryLLM.ChatTemplates/DotNetFoundryLLM.ChatTemplates.csproj" />
+    <Project Path="src/DotNetFoundryLLM.Architectures/DotNetFoundryLLM.Architectures.csproj" />
+    <Project Path="src/DotNetFoundryLLM.Inference/DotNetFoundryLLM.Inference.csproj" />
+    <Project Path="src/DotNetFoundryLLM.Sampling/DotNetFoundryLLM.Sampling.csproj" />
+    <Project Path="src/DotNetFoundryLLM.Embeddings/DotNetFoundryLLM.Embeddings.csproj" />
+    <Project Path="src/DotNetFoundryLLM.Runtime/DotNetFoundryLLM.Runtime.csproj" />
+    <Project Path="src/DotNetFoundryLLM.Hosting/DotNetFoundryLLM.Hosting.csproj" />
+    <Project Path="src/DotNetFoundryLLM.Api/DotNetFoundryLLM.Api.csproj" />
+    <Project Path="src/DotNetFoundryLLM.Cli/DotNetFoundryLLM.Cli.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/DotNetFoundryLLM.Tensors.Tests/DotNetFoundryLLM.Tensors.Tests.csproj" />
+    <Project Path="tests/DotNetFoundryLLM.Quantization.Tests/DotNetFoundryLLM.Quantization.Tests.csproj" />
+    <Project Path="tests/DotNetFoundryLLM.Tokenization.Tests/DotNetFoundryLLM.Tokenization.Tests.csproj" />
+    <Project Path="tests/DotNetFoundryLLM.ModelFormats.Gguf.Tests/DotNetFoundryLLM.ModelFormats.Gguf.Tests.csproj" />
+    <Project Path="tests/DotNetFoundryLLM.ModelFormats.SafeTensors.Tests/DotNetFoundryLLM.ModelFormats.SafeTensors.Tests.csproj" />
+    <Project Path="tests/DotNetFoundryLLM.ChatTemplates.Tests/DotNetFoundryLLM.ChatTemplates.Tests.csproj" />
+    <Project Path="tests/DotNetFoundryLLM.Architectures.Tests/DotNetFoundryLLM.Architectures.Tests.csproj" />
+    <Project Path="tests/DotNetFoundryLLM.Inference.Tests/DotNetFoundryLLM.Inference.Tests.csproj" />
+    <Project Path="tests/DotNetFoundryLLM.Sampling.Tests/DotNetFoundryLLM.Sampling.Tests.csproj" />
+    <Project Path="tests/DotNetFoundryLLM.Integration.Tests/DotNetFoundryLLM.Integration.Tests.csproj" />
+  </Folder>
+  <Folder Name="/bench/">
+    <Project Path="bench/DotNetFoundryLLM.Bench.Tensors/DotNetFoundryLLM.Bench.Tensors.csproj" />
+    <Project Path="bench/DotNetFoundryLLM.Bench.Quantization/DotNetFoundryLLM.Bench.Quantization.csproj" />
+    <Project Path="bench/DotNetFoundryLLM.Bench.Tokenization/DotNetFoundryLLM.Bench.Tokenization.csproj" />
+    <Project Path="bench/DotNetFoundryLLM.Bench.Inference/DotNetFoundryLLM.Bench.Inference.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/ConsoleChat/ConsoleChat.csproj" />
+    <Project Path="samples/BatchCompletion/BatchCompletion.csproj" />
+    <Project Path="samples/EmbeddingsDemo/EmbeddingsDemo.csproj" />
+    <Project Path="samples/AspNetMinimalHost/AspNetMinimalHost.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/DotNetFoundryLLM.Tools.GgufInspector/DotNetFoundryLLM.Tools.GgufInspector.csproj" />
+    <Project Path="tools/DotNetFoundryLLM.Tools.TokenizerProbe/DotNetFoundryLLM.Tools.TokenizerProbe.csproj" />
+  </Folder>
+</Solution>

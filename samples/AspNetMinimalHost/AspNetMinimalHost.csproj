@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>AspNetMinimalHost</RootNamespace>
+    <AssemblyName>AspNetMinimalHost</AssemblyName>
+    <IsAotCompatible>false</IsAotCompatible>
+    <IsTrimmable>false</IsTrimmable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/DotNetFoundryLLM.Api/DotNetFoundryLLM.Api.csproj" />
+  </ItemGroup>
+</Project>

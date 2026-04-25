@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>DotNetFoundryLLM.Tensors</RootNamespace>
+    <AssemblyName>DotNetFoundryLLM.Tensors</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Numerics.Tensors" />
+    <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.Core/DotNetFoundryLLM.Core.csproj" />
+  </ItemGroup>
+</Project>

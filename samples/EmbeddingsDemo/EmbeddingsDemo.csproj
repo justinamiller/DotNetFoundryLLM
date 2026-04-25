@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>EmbeddingsDemo</RootNamespace>
+    <AssemblyName>EmbeddingsDemo</AssemblyName>
+    <IsAotCompatible>false</IsAotCompatible>
+    <IsTrimmable>false</IsTrimmable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/DotNetFoundryLLM.Embeddings/DotNetFoundryLLM.Embeddings.csproj" />
+  </ItemGroup>
+</Project>
