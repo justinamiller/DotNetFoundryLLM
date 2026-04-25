@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>DotNetFoundryLLM.Inference</RootNamespace>
+    <AssemblyName>DotNetFoundryLLM.Inference</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.Tensors/DotNetFoundryLLM.Tensors.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.Sampling/DotNetFoundryLLM.Sampling.csproj" />
+  </ItemGroup>
+</Project>

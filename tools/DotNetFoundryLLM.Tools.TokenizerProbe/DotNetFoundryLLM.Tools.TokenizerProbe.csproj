@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>DotNetFoundryLLM.Tools.TokenizerProbe</RootNamespace>
+    <AssemblyName>DotNetFoundryLLM.Tools.TokenizerProbe</AssemblyName>
+    <IsAotCompatible>false</IsAotCompatible>
+    <IsTrimmable>false</IsTrimmable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/DotNetFoundryLLM.Tokenization/DotNetFoundryLLM.Tokenization.csproj" />
+  </ItemGroup>
+</Project>

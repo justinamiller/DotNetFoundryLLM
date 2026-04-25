@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsAotCompatible>false</IsAotCompatible>
+    <NoWarn>$(NoWarn);CA1707;CS1591;IL2026;IL2111;IL2072;IL2091;IL2077</NoWarn>
+    <IsTrimmable>false</IsTrimmable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="xunit.runner.visualstudio" />
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../src/DotNetFoundryLLM.Tokenization/DotNetFoundryLLM.Tokenization.csproj" />
+  </ItemGroup>
+</Project>

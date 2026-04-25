@@ -1,0 +1,6 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>DotNetFoundryLLM.Abstractions</RootNamespace>
+    <AssemblyName>DotNetFoundryLLM.Abstractions</AssemblyName>
+  </PropertyGroup>
+</Project>

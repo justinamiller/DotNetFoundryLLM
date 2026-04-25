@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>DotNetFoundryLLM.Tokenization</RootNamespace>
+    <AssemblyName>DotNetFoundryLLM.Tokenization</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />
+  </ItemGroup>
+</Project>

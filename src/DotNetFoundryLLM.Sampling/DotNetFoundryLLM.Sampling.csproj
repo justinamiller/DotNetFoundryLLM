@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <RootNamespace>DotNetFoundryLLM.Sampling</RootNamespace>
+    <AssemblyName>DotNetFoundryLLM.Sampling</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.Core/DotNetFoundryLLM.Core.csproj" />
+  </ItemGroup>
+</Project>
