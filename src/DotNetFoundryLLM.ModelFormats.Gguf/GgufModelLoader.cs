@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using DotNetFoundryLLM.Abstractions;
 using DotNetFoundryLLM.Architectures;
 using DotNetFoundryLLM.Core;
@@ -18,6 +19,14 @@ namespace DotNetFoundryLLM.ModelFormats.Gguf;
 public sealed class GgufModelLoader : IModelLoader
 {
     private static readonly string[] s_extensions = [".gguf"];
+    private readonly IInferenceTelemetry _telemetry;
+
+    /// <summary>Initializes a new GGUF model loader.</summary>
+    /// <param name="telemetry">Optional inference telemetry sink.</param>
+    public GgufModelLoader(IInferenceTelemetry? telemetry = null)
+    {
+        _telemetry = telemetry ?? NullInferenceTelemetry.Instance;
+    }
 
     /// <inheritdoc />
     public bool CanLoad(string path)
@@ -37,6 +46,8 @@ public sealed class GgufModelLoader : IModelLoader
             throw new ModelLoadException(path, $"GGUF file not found: {path}");
         }
 
+        var sw = Stopwatch.StartNew();
+
         GgufFile gguf;
         try
         {
@@ -53,7 +64,25 @@ public sealed class GgufModelLoader : IModelLoader
 
         try
         {
-            return Build(gguf);
+            var model = Build(gguf);
+
+            long fileSize = 0;
+            try
+            {
+                fileSize = new FileInfo(path).Length;
+            }
+            catch
+            {
+            }
+
+            _telemetry.RecordModelLoaded(new ModelLoadTelemetry(
+                path,
+                model.Metadata.Architecture,
+                sw.ElapsedMilliseconds,
+                fileSize,
+                model.Metadata.ParameterCount));
+
+            return model;
         }
         catch (ModelLoadException)
         {
@@ -67,7 +96,7 @@ public sealed class GgufModelLoader : IModelLoader
 
     // ── Private assembly logic ────────────────────────────────────────────────
 
-    private static Inference.LlamaLanguageModel Build(GgufFile gguf)
+    private Inference.LlamaLanguageModel Build(GgufFile gguf)
     {
         var meta   = gguf.Metadata;
         var config = BuildConfig(meta);
@@ -88,7 +117,7 @@ public sealed class GgufModelLoader : IModelLoader
                                  kv => kv.Value.AsObject() ?? (object)string.Empty));
 
         var sampler = new SamplerPipeline(temperature: 1.0f, topK: 0, topP: 1.0f, seed: 0);
-        return new Inference.LlamaLanguageModel(weights, tokenizer, sampler, modelMeta);
+        return new Inference.LlamaLanguageModel(weights, tokenizer, sampler, modelMeta, telemetry: _telemetry);
     }
 
     private static LlamaConfig BuildConfig(IReadOnlyDictionary<string, GgufMetadataValue> meta)
@@ -203,7 +232,10 @@ public sealed class GgufModelLoader : IModelLoader
     private static float[]? LoadTensorOptional(GgufFile gguf, string name, long expectedElements)
     {
         var info = gguf.FindTensor(name);
-        if (info is null) return null;
+        if (info is null)
+        {
+            return null;
+        }
 
         var raw = gguf.GetTensorBytes(info);
         var dst = new float[expectedElements];
@@ -227,7 +259,11 @@ public sealed class GgufModelLoader : IModelLoader
         ulong defaultVal = 0,
         bool arrayLength = false)
     {
-        if (!meta.TryGetValue(key, out var v)) return defaultVal;
+        if (!meta.TryGetValue(key, out var v))
+        {
+            return defaultVal;
+        }
+
         if (arrayLength && v.ValueType == GgufValueType.Array)
         {
             return (ulong)(v.ArrayValue?.Count ?? 0);

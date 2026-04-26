@@ -36,6 +36,19 @@ public sealed record GenerationOptions
 
     /// <summary>Stop sequences that terminate generation.</summary>
     public IReadOnlyList<string>? StopSequences { get; init; }
+
+    /// <summary>
+    /// When true, each TokenStreamChunk includes a TokenBreakdown with the
+    /// token's log-probability and elapsed decode time.
+    /// Adds one extra softmax per decode step.
+    /// </summary>
+    public bool ReturnLogProbs { get; init; }
+
+    /// <summary>
+    /// Number of top-alternative tokens to return per step when ReturnLogProbs
+    /// is true. Clamped to [0, 20]. Zero disables top-alternative collection.
+    /// </summary>
+    public int TopLogProbsCount { get; init; }
 }
 
 /// <summary>A single generated token.</summary>
@@ -46,7 +59,8 @@ public sealed record TokenStreamChunk(
     Token Token,
     bool IsFinished,
     string? FinishReason = null,
-    Usage? Usage = null);
+    Usage? Usage = null,
+    TokenBreakdown? Breakdown = null);
 
 /// <summary>Token usage statistics for a request.</summary>
 public sealed record Usage(

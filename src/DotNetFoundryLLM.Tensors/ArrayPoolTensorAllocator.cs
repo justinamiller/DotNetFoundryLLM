@@ -15,7 +15,8 @@ public sealed class ArrayPoolTensorAllocator : ITensorAllocator
         return dtype switch
         {
             DType.F32 => new Tensor<float>(s),
-            DType.F16 => new Tensor<ushort>(s),
+            DType.F16 => new Tensor<ushort>(s, DType.F16),
+            DType.BF16 => new Tensor<ushort>(s, DType.BF16),
             DType.I32 => new Tensor<int>(s),
             DType.I8 => new Tensor<sbyte>(s),
             _ => new Tensor<float>(s)
@@ -26,7 +27,10 @@ public sealed class ArrayPoolTensorAllocator : ITensorAllocator
     public static Tensor<float> AllocateF32(Shape shape) => new(shape);
 
     /// <summary>Allocates a float16 (represented as ushort) tensor of the given shape.</summary>
-    public static Tensor<ushort> AllocateF16(Shape shape) => new(shape);
+    public static Tensor<ushort> AllocateF16(Shape shape) => new(shape, DType.F16);
+
+    /// <summary>Allocates a bfloat16 (represented as ushort) tensor of the given shape.</summary>
+    public static Tensor<ushort> AllocateBF16(Shape shape) => new(shape, DType.BF16);
 
     /// <summary>Allocates an int32 tensor of the given shape.</summary>
     public static Tensor<int> AllocateI32(Shape shape) => new(shape);

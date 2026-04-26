@@ -119,12 +119,18 @@ public sealed class DequantizerTests
         var block = new byte[18];
         BinaryPrimitives.WriteUInt16LittleEndian(block.AsSpan(0, 2), 0x0000); // delta=0
         // qs bytes 0..15: 0x88 → lower nibble=8, upper nibble=8 → (8-8)*0 = 0
-        for (int i = 2; i < 18; i++) block[i] = 0x88;
+        for (int i = 2; i < 18; i++)
+        {
+            block[i] = 0x88;
+        }
 
         var dst = new float[32];
         Dequantizer.DequantizeQ4_0(block, dst);
 
-        foreach (var v in dst) Assert.Equal(0f, v);
+        foreach (var v in dst)
+        {
+            Assert.Equal(0f, v);
+        }
     }
 
     [Fact]
@@ -137,14 +143,17 @@ public sealed class DequantizerTests
         // qs[0] = 0x79: lower=9, upper=7 → element[0]=1, element[16]=-1
         block[2] = 0x79;
         // remaining nibbles = 8 → 0
-        for (int i = 3; i < 18; i++) block[i] = 0x88;
+        for (int i = 3; i < 18; i++)
+        {
+            block[i] = 0x88;
+        }
 
         var dst = new float[32];
         Dequantizer.DequantizeQ4_0(block, dst);
 
-        Assert.Equal(1f,  dst[0],  precision: 5);
+        Assert.Equal(1f, dst[0], precision: 5);
         Assert.Equal(-1f, dst[16], precision: 5);
-        Assert.Equal(0f,  dst[1],  precision: 5);
+        Assert.Equal(0f, dst[1], precision: 5);
     }
 
     [Fact]
@@ -209,5 +218,67 @@ public sealed class DequantizerTests
     {
         // 34 bytes = 1 block = 32 elements
         Assert.Equal(32L, Dequantizer.ElementCount(8, 34));
+    }
+
+    [Fact]
+    public void ElementCount_Q4_K()
+    {
+        // 144 bytes = 1 block = 256 elements
+        Assert.Equal(256L, Dequantizer.ElementCount(12, 144));
+    }
+
+    [Fact]
+    public void ElementCount_Q5_K()
+    {
+        // 176 bytes = 1 block = 256 elements
+        Assert.Equal(256L, Dequantizer.ElementCount(13, 176));
+    }
+
+    [Fact]
+    public void DequantizeQ4_K_ZeroBlock_ProducesZeros()
+    {
+        // d=1.0, dmin=0, scales all zero, quants zero => output all zero
+        var block = new byte[144];
+        BinaryPrimitives.WriteUInt16LittleEndian(block.AsSpan(0, 2), 0x3C00);
+        BinaryPrimitives.WriteUInt16LittleEndian(block.AsSpan(2, 2), 0x0000);
+
+        var dst = new float[256];
+        Dequantizer.Dequantize(12, block, dst);
+
+        foreach (var v in dst)
+        {
+            Assert.Equal(0f, v);
+        }
+    }
+
+    [Fact]
+    public void DequantizeQ5_K_ZeroBlock_ProducesZeros()
+    {
+        // d=1.0, dmin=0, scales all zero, quants zero => output all zero
+        var block = new byte[176];
+        BinaryPrimitives.WriteUInt16LittleEndian(block.AsSpan(0, 2), 0x3C00);
+        BinaryPrimitives.WriteUInt16LittleEndian(block.AsSpan(2, 2), 0x0000);
+
+        var dst = new float[256];
+        Dequantizer.Dequantize(13, block, dst);
+
+        foreach (var v in dst)
+        {
+            Assert.Equal(0f, v);
+        }
+    }
+
+    [Fact]
+    public void DequantizeQ4_K_WrongLength_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            Dequantizer.DequantizeQ4_K(new byte[143], new float[256]));
+    }
+
+    [Fact]
+    public void DequantizeQ5_K_WrongLength_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            Dequantizer.DequantizeQ5_K(new byte[175], new float[256]));
     }
 }

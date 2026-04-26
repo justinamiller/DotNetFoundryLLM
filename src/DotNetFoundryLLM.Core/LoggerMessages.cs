@@ -21,6 +21,23 @@ public static partial class LoggerMessages
     [LoggerMessage(Level = LogLevel.Debug, Message = "Generation complete: {TokenCount} tokens in {ElapsedMs}ms")]
     public static partial void LogGenerationCompleted(this ILogger logger, int tokenCount, long elapsedMs);
 
+    /// <summary>Logs detailed generation telemetry for a completed request.</summary>
+    [LoggerMessage(Level = LogLevel.Debug,
+        Message = "Generation telemetry: prompt={PromptTokens} completion={CompletionTokens} ttft={TimeToFirstTokenMs}ms decode={DecodeTimeMs}ms throughput={TokensPerSecond:F1}tok/s finish={FinishReason}")]
+    public static partial void LogGenerationTelemetry(
+        this ILogger logger,
+        int promptTokens, int completionTokens,
+        long timeToFirstTokenMs, long decodeTimeMs,
+        double tokensPerSecond, string finishReason);
+
+    /// <summary>Logs a structured summary when model loading completes.</summary>
+    [LoggerMessage(Level = LogLevel.Information,
+        Message = "Model load complete: architecture={Architecture} params={ParameterCount} loadTime={LoadTimeMs}ms fileSize={FileSizeBytes}B")]
+    public static partial void LogModelLoadComplete(
+        this ILogger logger,
+        string architecture, ulong parameterCount,
+        long loadTimeMs, long fileSizeBytes);
+
     /// <summary>Logs a tensor operation.</summary>
     [LoggerMessage(Level = LogLevel.Trace, Message = "Tensor op: {Operation} shape={Shape}")]
     public static partial void LogTensorOperation(this ILogger logger, string operation, string shape);

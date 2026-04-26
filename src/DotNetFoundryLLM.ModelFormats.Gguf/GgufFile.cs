@@ -1,3 +1,6 @@
+using System.Buffers;
+using System.IO.MemoryMappedFiles;
+
 namespace DotNetFoundryLLM.ModelFormats.Gguf;
 
 /// <summary>
@@ -6,8 +9,11 @@ namespace DotNetFoundryLLM.ModelFormats.Gguf;
 /// </summary>
 public sealed class GgufFile : IDisposable
 {
-    private readonly byte[] _fileBytes;
+    private readonly byte[]? _fileBytes;
+    private readonly MemoryMappedFile? _mappedFile;
+    private readonly MemoryMappedViewAccessor? _mappedAccessor;
     private readonly long _dataStart;
+    private byte[]? _scratch;
     private bool _disposed;
 
     internal GgufFile(
@@ -21,6 +27,22 @@ public sealed class GgufFile : IDisposable
         Metadata = metadata;
         Tensors = tensors;
         _fileBytes = fileBytes;
+        _dataStart = dataStart;
+    }
+
+    internal GgufFile(
+        uint version,
+        IReadOnlyDictionary<string, GgufMetadataValue> metadata,
+        IReadOnlyList<GgufTensorInfo> tensors,
+        MemoryMappedFile mappedFile,
+        MemoryMappedViewAccessor mappedAccessor,
+        long dataStart)
+    {
+        Version = version;
+        Metadata = metadata;
+        Tensors = tensors;
+        _mappedFile = mappedFile;
+        _mappedAccessor = mappedAccessor;
         _dataStart = dataStart;
     }
 
@@ -41,7 +63,10 @@ public sealed class GgufFile : IDisposable
         ArgumentNullException.ThrowIfNull(name);
         foreach (var t in Tensors)
         {
-            if (t.Name == name) return t;
+            if (t.Name == name)
+            {
+                return t;
+            }
         }
 
         return null;
@@ -60,7 +85,20 @@ public sealed class GgufFile : IDisposable
 
         long byteSize = ComputeByteSize(info);
         long absoluteOffset = _dataStart + (long)info.Offset;
-        return _fileBytes.AsSpan((int)absoluteOffset, (int)byteSize);
+
+        if (_fileBytes is not null)
+        {
+            return _fileBytes.AsSpan((int)absoluteOffset, (int)byteSize);
+        }
+
+        if (_mappedAccessor is null)
+        {
+            throw new InvalidOperationException("GGUF backing store is unavailable.");
+        }
+
+        EnsureScratchCapacity((int)byteSize);
+        _mappedAccessor.ReadArray(absoluteOffset, _scratch!, 0, (int)byteSize);
+        return _scratch.AsSpan(0, (int)byteSize);
     }
 
     /// <summary>Returns the size in bytes of the tensor data, computed from its type and element count.</summary>
@@ -80,6 +118,10 @@ public sealed class GgufFile : IDisposable
             GgufTensorType.Q5_1 => elems / 32 * 24,
             GgufTensorType.Q8_0 => elems / 32 * 34,
             GgufTensorType.Q8_1 => elems / 32 * 36,
+            GgufTensorType.Q4_K => elems / 256 * 144,
+            GgufTensorType.Q5_K => elems / 256 * 176,
+            GgufTensorType.Q6_K => elems / 256 * 210,
+            GgufTensorType.Q8_K => elems / 256 * 292,
 #pragma warning restore CA1707
             _ => throw new NotSupportedException($"Cannot compute byte size for tensor type {info.TensorType}.")
         };
@@ -88,6 +130,35 @@ public sealed class GgufFile : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         _disposed = true;
+
+        if (_scratch is not null)
+        {
+            ArrayPool<byte>.Shared.Return(_scratch);
+            _scratch = null;
+        }
+
+        _mappedAccessor?.Dispose();
+        _mappedFile?.Dispose();
+    }
+
+    private void EnsureScratchCapacity(int length)
+    {
+        if (_scratch is not null && _scratch.Length >= length)
+        {
+            return;
+        }
+
+        if (_scratch is not null)
+        {
+            ArrayPool<byte>.Shared.Return(_scratch);
+        }
+
+        _scratch = ArrayPool<byte>.Shared.Rent(length);
     }
 }

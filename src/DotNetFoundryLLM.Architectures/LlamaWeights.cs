@@ -8,6 +8,7 @@ namespace DotNetFoundryLLM.Architectures;
 public sealed class LlamaWeights : IDisposable
 {
     private bool _disposed;
+    private readonly long _estimatedBytes;
 
     /// <summary>
     /// Initializes a new <see cref="LlamaWeights"/> instance with per-layer arrays.
@@ -41,6 +42,12 @@ public sealed class LlamaWeights : IDisposable
         FfnDown      = ffnDown;
         OutputNorm   = outputNorm;
         OutputWeight = outputWeight;
+
+        _estimatedBytes = EstimateTotalBytes();
+        if (_estimatedBytes > 0)
+        {
+            GC.AddMemoryPressure(_estimatedBytes);
+        }
     }
 
     /// <summary>Model configuration.</summary>
@@ -85,8 +92,47 @@ public sealed class LlamaWeights : IDisposable
     /// <inheritdoc />
     public void Dispose()
     {
+        if (_disposed)
+        {
+            return;
+        }
+
         _disposed = true;
+        if (_estimatedBytes > 0)
+        {
+            GC.RemoveMemoryPressure(_estimatedBytes);
+        }
+
         GC.SuppressFinalize(this);
+    }
+
+    private long EstimateTotalBytes()
+    {
+        long total = 0;
+        total += (long)TokenEmbedding.Length * sizeof(float);
+        total += SumJaggedBytes(AttnNorm);
+        total += SumJaggedBytes(Wq);
+        total += SumJaggedBytes(Wk);
+        total += SumJaggedBytes(Wv);
+        total += SumJaggedBytes(Wo);
+        total += SumJaggedBytes(FfnNorm);
+        total += SumJaggedBytes(FfnGate);
+        total += SumJaggedBytes(FfnUp);
+        total += SumJaggedBytes(FfnDown);
+        total += (long)OutputNorm.Length * sizeof(float);
+        total += (long)OutputWeight.Length * sizeof(float);
+        return total;
+    }
+
+    private static long SumJaggedBytes(float[][] data)
+    {
+        long total = 0;
+        for (int i = 0; i < data.Length; i++)
+        {
+            total += (long)data[i].Length * sizeof(float);
+        }
+
+        return total;
     }
 
     internal void ThrowIfDisposed() =>

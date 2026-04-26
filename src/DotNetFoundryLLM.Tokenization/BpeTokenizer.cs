@@ -154,33 +154,109 @@ public sealed partial class BpeTokenizer : ITokenizer
 
     /// <summary>
     /// Iteratively merges adjacent symbol pairs in <paramref name="symbols"/> according to
-    /// the vocabulary's merge rank table.  In each iteration the pair with the lowest rank
+    /// the vocabulary's merge rank table. In each iteration the pair with the lowest rank
     /// (highest priority) is merged; the process repeats until no applicable pair remains.
     /// </summary>
     private void ApplyMerges(List<string> symbols)
     {
-        while (symbols.Count >= 2)
+        if (symbols.Count < 2)
         {
-            int bestRank = int.MaxValue;
-            int bestPos = -1;
+            return;
+        }
 
-            for (int i = 0; i < symbols.Count - 1; i++)
+        int n = symbols.Count;
+        var values = new string[n];
+        var prev = new int[n];
+        var next = new int[n];
+        var alive = new bool[n];
+
+        for (int i = 0; i < n; i++)
+        {
+            values[i] = symbols[i];
+            prev[i] = i - 1;
+            next[i] = i + 1;
+            alive[i] = true;
+        }
+
+        next[n - 1] = -1;
+
+        var pq = new PriorityQueue<MergeCandidate, int>();
+
+        void EnqueueIfMergeable(int left)
+        {
+            if (left < 0 || !alive[left])
             {
-                if (_vocab.MergeRanks.TryGetValue((symbols[i], symbols[i + 1]), out var rank)
-                    && rank < bestRank)
-                {
-                    bestRank = rank;
-                    bestPos = i;
-                }
+                return;
             }
 
-            if (bestPos < 0)
+            int right = next[left];
+            if (right < 0 || !alive[right])
             {
-                break;
+                return;
             }
 
-            symbols[bestPos] = symbols[bestPos] + symbols[bestPos + 1];
-            symbols.RemoveAt(bestPos + 1);
+            if (_vocab.MergeRanks.TryGetValue((values[left], values[right]), out int rank))
+            {
+                pq.Enqueue(new MergeCandidate(left, right, rank), rank);
+            }
+        }
+
+        for (int i = 0; i < n - 1; i++)
+        {
+            EnqueueIfMergeable(i);
+        }
+
+        while (pq.Count > 0)
+        {
+            var candidate = pq.Dequeue();
+            int left = candidate.Left;
+            int right = candidate.Right;
+
+            if (left < 0 || right < 0 || !alive[left] || !alive[right])
+            {
+                continue;
+            }
+
+            if (next[left] != right || prev[right] != left)
+            {
+                continue;
+            }
+
+            if (!_vocab.MergeRanks.TryGetValue((values[left], values[right]), out int currentRank) ||
+                currentRank != candidate.Rank)
+            {
+                continue;
+            }
+
+            values[left] = values[left] + values[right];
+            alive[right] = false;
+
+            int rightNext = next[right];
+            next[left] = rightNext;
+            if (rightNext >= 0)
+            {
+                prev[rightNext] = left;
+            }
+
+            EnqueueIfMergeable(prev[left]);
+            EnqueueIfMergeable(left);
+        }
+
+        symbols.Clear();
+        int head = 0;
+        while (head >= 0 && !alive[head])
+        {
+            head = next[head];
+        }
+
+        for (int i = head; i >= 0; i = next[i])
+        {
+            if (alive[i])
+            {
+                symbols.Add(values[i]);
+            }
         }
     }
+
+    private readonly record struct MergeCandidate(int Left, int Right, int Rank);
 }

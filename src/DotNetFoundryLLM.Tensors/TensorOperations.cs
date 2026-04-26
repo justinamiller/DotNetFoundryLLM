@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Numerics;
 using System.Numerics.Tensors;
 
@@ -21,15 +22,16 @@ public static class TensorOperations
     /// <summary>Computes in-place softmax over a span.</summary>
     public static void Softmax(Span<float> x)
     {
-        if (x.IsEmpty) return;
-
-        var max = TensorPrimitives.Max(x);
-        for (var i = 0; i < x.Length; i++)
+        if (x.IsEmpty)
         {
-            x[i] = MathF.Exp(x[i] - max);
+            return;
         }
 
-        var sum = TensorPrimitives.Sum(x);
+        float max = TensorPrimitives.Max(x);
+        TensorPrimitives.Add(x, -max, x);
+        TensorPrimitives.Exp(x, x);
+
+        float sum = TensorPrimitives.Sum(x);
         if (sum != 0f)
         {
             TensorPrimitives.Divide(x, sum, x);
@@ -44,25 +46,31 @@ public static class TensorOperations
             throw new ArgumentException("All spans must have the same length.");
         }
 
-        float sumSq = 0f;
-        foreach (var v in x)
-        {
-            sumSq += v * v;
-        }
+        float sumSq = TensorPrimitives.Dot(x, x);
+        float rms = 1.0f / MathF.Sqrt(sumSq / x.Length + eps);
 
-        var rms = 1.0f / MathF.Sqrt(sumSq / x.Length + eps);
-        for (var i = 0; i < x.Length; i++)
-        {
-            dst[i] = w[i] * (x[i] * rms);
-        }
+        TensorPrimitives.Multiply(x, rms, dst);
+        TensorPrimitives.Multiply(dst, w, dst);
     }
 
     /// <summary>Applies the SiLU activation (x * sigmoid(x)) element-wise in-place.</summary>
     public static void Silu(Span<float> x)
     {
-        for (var i = 0; i < x.Length; i++)
+        if (x.IsEmpty)
         {
-            x[i] = x[i] / (1f + MathF.Exp(-x[i]));
+            return;
+        }
+
+        float[] scratch = ArrayPool<float>.Shared.Rent(x.Length);
+        try
+        {
+            var sig = scratch.AsSpan(0, x.Length);
+            TensorPrimitives.Sigmoid(x, sig);
+            TensorPrimitives.Multiply(x, sig, x);
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(scratch);
         }
     }
 
@@ -86,9 +94,20 @@ public static class TensorOperations
         ReadOnlySpan<float> a, ReadOnlySpan<float> b, Span<float> c,
         int m, int k, int n)
     {
-        if (a.Length != m * k) throw new ArgumentException("a length mismatch");
-        if (b.Length != k * n) throw new ArgumentException("b length mismatch");
-        if (c.Length != m * n) throw new ArgumentException("c length mismatch");
+        if (a.Length != m * k)
+        {
+            throw new ArgumentException("a length mismatch");
+        }
+
+        if (b.Length != k * n)
+        {
+            throw new ArgumentException("b length mismatch");
+        }
+
+        if (c.Length != m * n)
+        {
+            throw new ArgumentException("c length mismatch");
+        }
 
         c.Clear();
         for (var row = 0; row < m; row++)
@@ -128,11 +147,18 @@ public static class TensorOperations
     /// <exception cref="ArgumentException">Thrown when the span is empty.</exception>
     public static int ArgMax(ReadOnlySpan<float> x)
     {
-        if (x.IsEmpty) throw new ArgumentException("Span must not be empty.", nameof(x));
+        if (x.IsEmpty)
+        {
+            throw new ArgumentException("Span must not be empty.", nameof(x));
+        }
+
         int best = 0;
         for (int i = 1; i < x.Length; i++)
         {
-            if (x[i] > x[best]) best = i;
+            if (x[i] > x[best])
+            {
+                best = i;
+            }
         }
 
         return best;
@@ -147,7 +173,11 @@ public static class TensorOperations
     /// <param name="baseFreq">Base frequency (default 10000).</param>
     public static void ApplyRope(Span<float> x, int position, int headDim, float baseFreq = 10000f)
     {
-        if (headDim % 2 != 0) throw new ArgumentException("headDim must be even.");
+        if (headDim % 2 != 0)
+        {
+            throw new ArgumentException("headDim must be even.");
+        }
+
         for (var i = 0; i < headDim / 2; i++)
         {
             var theta = position / MathF.Pow(baseFreq, 2f * i / headDim);

@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.IO.MemoryMappedFiles;
 using System.Text;
 using DotNetFoundryLLM.Core;
 
@@ -6,26 +7,12 @@ namespace DotNetFoundryLLM.ModelFormats.Gguf;
 
 /// <summary>
 /// Parses GGUF binary files (versions 2 and 3) into a <see cref="GgufFile"/> instance.
-/// <para>
-/// The GGUF format layout:
-/// <list type="number">
-///   <item><description>4-byte magic: <c>GGUF</c></description></item>
-///   <item><description>uint32 version</description></item>
-///   <item><description>uint64 tensor_count</description></item>
-///   <item><description>uint64 metadata_kv_count</description></item>
-///   <item><description>metadata key-value pairs (metadata_kv_count entries)</description></item>
-///   <item><description>tensor info entries (tensor_count entries)</description></item>
-///   <item><description>alignment padding</description></item>
-///   <item><description>raw tensor data</description></item>
-/// </list>
-/// </para>
 /// </summary>
 public sealed class GgufReader
 {
     private static readonly byte[] s_magic = [(byte)'G', (byte)'G', (byte)'U', (byte)'F'];
-
-    // Default alignment used when the metadata does not specify general.alignment.
     private const int DefaultAlignment = 32;
+    private const long MemoryMapThresholdBytes = 256L * 1024L * 1024L;
 
     /// <summary>
     /// Reads a GGUF file from <paramref name="path"/> into a <see cref="GgufFile"/>.
@@ -41,27 +28,20 @@ public sealed class GgufReader
     {
         ArgumentException.ThrowIfNullOrEmpty(path);
 
-        byte[] data;
         try
         {
-            data = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+            var fileInfo = new FileInfo(path);
+            if (fileInfo.Length >= MemoryMapThresholdBytes)
+            {
+                return await ParseMappedAsync(path, cancellationToken).ConfigureAwait(false);
+            }
+
+            byte[] data = await File.ReadAllBytesAsync(path, cancellationToken).ConfigureAwait(false);
+            return Parse(data);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             throw new ModelLoadException(path, $"Failed to read GGUF file: {ex.Message}", ex);
-        }
-
-        try
-        {
-            return Parse(data);
-        }
-        catch (ModelLoadException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            throw new ModelLoadException(path, $"Failed to parse GGUF file: {ex.Message}", ex);
         }
     }
 
@@ -128,6 +108,80 @@ public sealed class GgufReader
         long alignedStart = ((headerEnd + alignment - 1) / alignment) * alignment;
 
         return new GgufFile(version, metadata, tensors, data, alignedStart);
+    }
+
+    private static async Task<GgufFile> ParseMappedAsync(string path, CancellationToken cancellationToken)
+    {
+        await using var stream = new FileStream(
+            path,
+            FileMode.Open,
+            FileAccess.Read,
+            FileShare.Read,
+            bufferSize: 64 * 1024,
+            options: FileOptions.Asynchronous | FileOptions.SequentialScan);
+
+        byte[] header = new byte[Math.Min((int)stream.Length, 16 * 1024 * 1024)];
+        int read = await stream.ReadAsync(header.AsMemory(0, header.Length), cancellationToken).ConfigureAwait(false);
+        if (read <= 0)
+        {
+            throw new ModelLoadException(path, "GGUF file is empty.");
+        }
+
+        var reader = new SpanReader(header.AsSpan(0, read));
+
+        // ── Magic ────────────────────────────────────────────────────────────
+        var magic = reader.ReadBytes(4);
+        if (!magic.SequenceEqual(s_magic))
+        {
+            throw new ModelLoadException(path, "Not a GGUF file: invalid magic bytes.");
+        }
+
+        // ── Version ──────────────────────────────────────────────────────────
+        uint version = reader.ReadUInt32();
+        if (version is not (2 or 3))
+        {
+            throw new ModelLoadException(path, $"Unsupported GGUF version {version}. Expected 2 or 3.");
+        }
+
+        // ── Counts ───────────────────────────────────────────────────────────
+        ulong tensorCount  = reader.ReadUInt64();
+        ulong kvCount      = reader.ReadUInt64();
+
+        // ── Metadata ─────────────────────────────────────────────────────────
+        var metadata = new Dictionary<string, GgufMetadataValue>((int)kvCount, StringComparer.Ordinal);
+        for (ulong i = 0; i < kvCount; i++)
+        {
+            string key = reader.ReadGgufString();
+            var value  = ReadMetadataValue(ref reader, version);
+            metadata[key] = value;
+        }
+
+        // ── Tensor infos ──────────────────────────────────────────────────────
+        var tensors = new List<GgufTensorInfo>((int)tensorCount);
+        for (ulong i = 0; i < tensorCount; i++)
+        {
+            tensors.Add(ReadTensorInfo(ref reader));
+        }
+
+        // ── Alignment + data start ────────────────────────────────────────────
+        int alignment = DefaultAlignment;
+        if (metadata.TryGetValue("general.alignment", out var alignMeta))
+        {
+            alignment = alignMeta.ValueType switch
+            {
+                GgufValueType.Uint32 => (int)(alignMeta.Uint32Value ?? DefaultAlignment),
+                GgufValueType.Uint64 => (int)(alignMeta.Uint64Value ?? DefaultAlignment),
+                _                    => DefaultAlignment
+            };
+        }
+
+        long headerEnd   = reader.Position;
+        long alignedStart = ((headerEnd + alignment - 1) / alignment) * alignment;
+
+        var mmf = MemoryMappedFile.CreateFromFile(path, FileMode.Open, null, 0, MemoryMappedFileAccess.Read);
+        var accessor = mmf.CreateViewAccessor(0, 0, MemoryMappedFileAccess.Read);
+
+        return new GgufFile(version, metadata, tensors, mmf, accessor, alignedStart);
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -220,7 +274,13 @@ public sealed class GgufReader
         public SpanReader(byte[] data)
         {
             _data = data;
-            _pos  = 0;
+            _pos = 0;
+        }
+
+        public SpanReader(ReadOnlySpan<byte> data)
+        {
+            _data = data;
+            _pos = 0;
         }
 
         public readonly long Position => _pos;

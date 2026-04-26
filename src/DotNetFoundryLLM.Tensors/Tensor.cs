@@ -1,4 +1,4 @@
-using System.Buffers;
+dusing System.Buffers;
 using System.Numerics;
 using DotNetFoundryLLM.Abstractions;
 
@@ -12,19 +12,33 @@ public sealed class Tensor<T> : ITensor, IDisposable
     private T[]? _buffer;
     private bool _disposed;
     private readonly int[] _strides;
+    private readonly DType _dtype;
 
     /// <summary>Initializes a new tensor with the given shape, renting a buffer from the array pool.</summary>
     public Tensor(Shape shape)
+        : this(shape, dtypeOverride: null)
+    {
+    }
+
+    /// <summary>Initializes a new tensor with the given shape and explicit logical dtype.</summary>
+    public Tensor(Shape shape, DType? dtypeOverride)
     {
         ArgumentNullException.ThrowIfNull(shape);
         Shape = shape;
         _strides = ComputeStrides(shape);
         _buffer = ArrayPool<T>.Shared.Rent((int)shape.ElementCount);
         _buffer.AsSpan(0, (int)shape.ElementCount).Clear();
+        _dtype = ResolveDType(dtypeOverride);
     }
 
     /// <summary>Initializes a new tensor from an existing span of data.</summary>
     public Tensor(Shape shape, ReadOnlySpan<T> data)
+        : this(shape, data, dtypeOverride: null)
+    {
+    }
+
+    /// <summary>Initializes a new tensor from an existing span of data and explicit logical dtype.</summary>
+    public Tensor(Shape shape, ReadOnlySpan<T> data, DType? dtypeOverride)
     {
         ArgumentNullException.ThrowIfNull(shape);
         if (data.Length != shape.ElementCount)
@@ -36,11 +50,16 @@ public sealed class Tensor<T> : ITensor, IDisposable
         _strides = ComputeStrides(shape);
         _buffer = ArrayPool<T>.Shared.Rent((int)shape.ElementCount);
         data.CopyTo(_buffer);
+        _dtype = ResolveDType(dtypeOverride);
     }
 
     private static int[] ComputeStrides(Shape shape)
     {
-        if (shape.Rank == 0) return [];
+        if (shape.Rank == 0)
+        {
+            return [];
+        }
+
         var strides = new int[shape.Rank];
         strides[shape.Rank - 1] = 1;
         for (var i = shape.Rank - 2; i >= 0; i--)
@@ -64,15 +83,52 @@ public sealed class Tensor<T> : ITensor, IDisposable
     ReadOnlySpan<int> ITensor.Shape => Shape.Dims;
     ReadOnlySpan<int> ITensor.Strides => _strides;
     int ITensor.ElementCount => (int)Shape.ElementCount;
-    DType ITensor.DType => GetDType();
+    DType ITensor.DType => _dtype;
 
-    private static DType GetDType()
+    private static DType GetDefaultDType()
     {
-        if (typeof(T) == typeof(float)) return DType.F32;
-        if (typeof(T) == typeof(int)) return DType.I32;
-        if (typeof(T) == typeof(sbyte)) return DType.I8;
-        if (typeof(T) == typeof(ushort)) return DType.F16;
+        if (typeof(T) == typeof(float))
+        {
+            return DType.F32;
+        }
+
+        if (typeof(T) == typeof(int))
+        {
+            return DType.I32;
+        }
+
+        if (typeof(T) == typeof(sbyte))
+        {
+            return DType.I8;
+        }
+
+        if (typeof(T) == typeof(ushort))
+        {
+            return DType.F16;
+        }
+
         return DType.F32;
+    }
+
+    private static DType ResolveDType(DType? overrideDType)
+    {
+        if (overrideDType is null)
+        {
+            return GetDefaultDType();
+        }
+
+        var requested = overrideDType.Value;
+        if (typeof(T) == typeof(ushort) && (requested == DType.F16 || requested == DType.BF16))
+        {
+            return requested;
+        }
+
+        if (requested == GetDefaultDType())
+        {
+            return requested;
+        }
+
+        throw new ArgumentException($"DType override {requested} is incompatible with tensor element type {typeof(T).Name}.");
     }
 
     /// <summary>Returns a span over the tensor's underlying data.</summary>

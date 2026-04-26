@@ -16,8 +16,9 @@ public sealed class KvCache : IKvCache
     private readonly float[][] _keys;
     private readonly float[][] _values;
     private readonly int _kvDim;
+    private readonly int _layerCount;
     private int _currentLength;
-    private int _pendingMaxLayer = -1;
+    private int _nextLayerToAppend;
     private bool _disposed;
 
     /// <summary>
@@ -34,12 +35,13 @@ public sealed class KvCache : IKvCache
 
         MaxSequenceLength = maxSequenceLength;
         _kvDim = kvDim;
+        _layerCount = layerCount;
 
-        _keys   = new float[layerCount][];
+        _keys = new float[layerCount][];
         _values = new float[layerCount][];
         for (int i = 0; i < layerCount; i++)
         {
-            _keys[i]   = new float[maxSequenceLength * kvDim];
+            _keys[i] = new float[maxSequenceLength * kvDim];
             _values[i] = new float[maxSequenceLength * kvDim];
         }
     }
@@ -54,6 +56,19 @@ public sealed class KvCache : IKvCache
     public void Append(int layer, ReadOnlySpan<float> keySlice, ReadOnlySpan<float> valueSlice)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+
+        if ((uint)layer >= (uint)_layerCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(layer), layer,
+                $"Layer index must be in [0, {_layerCount - 1}].");
+        }
+
+        if (layer != _nextLayerToAppend)
+        {
+            throw new InvalidOperationException(
+                $"KV cache append order violation: expected layer {_nextLayerToAppend} but received layer {layer}. " +
+                "Append layers sequentially for each token position.");
+        }
 
         if (_currentLength >= MaxSequenceLength)
         {
@@ -71,14 +86,11 @@ public sealed class KvCache : IKvCache
         keySlice.CopyTo(_keys[layer].AsSpan(offset, _kvDim));
         valueSlice.CopyTo(_values[layer].AsSpan(offset, _kvDim));
 
-        if (layer < _keys.Length - 1)
+        _nextLayerToAppend++;
+        if (_nextLayerToAppend == _layerCount)
         {
-            _pendingMaxLayer = Math.Max(_pendingMaxLayer, layer);
-        }
-        else
-        {
+            _nextLayerToAppend = 0;
             _currentLength++;
-            _pendingMaxLayer = -1;
         }
     }
 
@@ -86,9 +98,14 @@ public sealed class KvCache : IKvCache
     public ReadOnlySpan<float> GetKeys(int layer)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if ((uint)layer >= (uint)_layerCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(layer), layer,
+                $"Layer index must be in [0, {_layerCount - 1}].");
+        }
 
         int effectiveLength = _currentLength;
-        if (_pendingMaxLayer >= 0 && layer <= _pendingMaxLayer)
+        if (_nextLayerToAppend > 0 && layer < _nextLayerToAppend)
         {
             effectiveLength++;
         }
@@ -100,9 +117,14 @@ public sealed class KvCache : IKvCache
     public ReadOnlySpan<float> GetValues(int layer)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        if ((uint)layer >= (uint)_layerCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(layer), layer,
+                $"Layer index must be in [0, {_layerCount - 1}].");
+        }
 
         int effectiveLength = _currentLength;
-        if (_pendingMaxLayer >= 0 && layer <= _pendingMaxLayer)
+        if (_nextLayerToAppend > 0 && layer < _nextLayerToAppend)
         {
             effectiveLength++;
         }
@@ -115,7 +137,7 @@ public sealed class KvCache : IKvCache
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _currentLength = 0;
-        _pendingMaxLayer = -1;
+        _nextLayerToAppend = 0;
     }
 
     /// <inheritdoc />

@@ -1,3 +1,4 @@
+using System.Buffers;
 using System.Numerics.Tensors;
 using DotNetFoundryLLM.Abstractions;
 using DotNetFoundryLLM.Tensors;
@@ -43,6 +44,12 @@ public sealed class LlamaForwardPass
         _weights = weights;
         _cfg     = weights.Config;
 
+        if (_cfg.NumKvHeads <= 0 || _cfg.NumHeads <= 0 || _cfg.NumKvHeads > _cfg.NumHeads || (_cfg.NumHeads % _cfg.NumKvHeads) != 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(weights),
+                $"Invalid attention head configuration: NumHeads={_cfg.NumHeads}, NumKvHeads={_cfg.NumKvHeads}. Expected NumKvHeads > 0, NumKvHeads <= NumHeads, and NumHeads % NumKvHeads == 0.");
+        }
+
         _x       = new float[_cfg.HiddenSize];
         _xNorm   = new float[_cfg.HiddenSize];
         _q       = new float[_cfg.QueryDim];
@@ -69,6 +76,12 @@ public sealed class LlamaForwardPass
         _weights.ThrowIfDisposed();
 
         int h = _cfg.HiddenSize;
+
+        if ((uint)tokenId >= (uint)_cfg.VocabSize)
+        {
+            throw new ArgumentOutOfRangeException(nameof(tokenId), tokenId,
+                $"Token id {tokenId} is outside the valid vocabulary range [0, {_cfg.VocabSize - 1}].");
+        }
 
         // 1. Token embedding lookup.
         _weights.TokenEmbedding.AsSpan(tokenId * h, h).CopyTo(_x);
@@ -139,36 +152,48 @@ public sealed class LlamaForwardPass
         var allValues = kvCache.GetValues(layer);
         int kvDim     = _cfg.KvDim;
 
-        // Temporary scores buffer [seqLen].
-        Span<float> scores = stackalloc float[seqLen];
+        float[]? rentedScores = null;
+        Span<float> scores = seqLen <= 512
+            ? stackalloc float[seqLen]
+            : (rentedScores = ArrayPool<float>.Shared.Rent(seqLen)).AsSpan(0, seqLen);
 
-        _attnOut.AsSpan().Clear();
-
-        for (int qHead = 0; qHead < numHeads; qHead++)
+        try
         {
-            int kvHead = qHead / groupSize;
-            var qSlice = _q.AsSpan(qHead * headDim, headDim);
+            _attnOut.AsSpan().Clear();
 
-            // Compute attention scores: q · k_t for all t.
-            for (int t = 0; t < seqLen; t++)
+            for (int qHead = 0; qHead < numHeads; qHead++)
             {
-                var kSlice = allKeys.Slice(t * kvDim + kvHead * headDim, headDim);
-                scores[t]  = TensorOperations.Dot(qSlice, kSlice) * scale;
-            }
+                int kvHead = qHead / groupSize;
+                var qSlice = _q.AsSpan(qHead * headDim, headDim);
 
-            // Softmax over scores.
-            TensorOperations.Softmax(scores.Slice(0, seqLen));
-
-            // Weighted sum of values.
-            var outSlice = _attnOut.AsSpan(qHead * headDim, headDim);
-            for (int t = 0; t < seqLen; t++)
-            {
-                var vSlice = allValues.Slice(t * kvDim + kvHead * headDim, headDim);
-                float w    = scores[t];
-                for (int d = 0; d < headDim; d++)
+                // Compute attention scores: q · k_t for all t.
+                for (int t = 0; t < seqLen; t++)
                 {
-                    outSlice[d] += w * vSlice[d];
+                    var kSlice = allKeys.Slice(t * kvDim + kvHead * headDim, headDim);
+                    scores[t]  = TensorOperations.Dot(qSlice, kSlice) * scale;
                 }
+
+                // Softmax over scores.
+                TensorOperations.Softmax(scores.Slice(0, seqLen));
+
+                // Weighted sum of values.
+                var outSlice = _attnOut.AsSpan(qHead * headDim, headDim);
+                for (int t = 0; t < seqLen; t++)
+                {
+                    var vSlice = allValues.Slice(t * kvDim + kvHead * headDim, headDim);
+                    float w    = scores[t];
+                    for (int d = 0; d < headDim; d++)
+                    {
+                        outSlice[d] += w * vSlice[d];
+                    }
+                }
+            }
+        }
+        finally
+        {
+            if (rentedScores is not null)
+            {
+                ArrayPool<float>.Shared.Return(rentedScores);
             }
         }
     }

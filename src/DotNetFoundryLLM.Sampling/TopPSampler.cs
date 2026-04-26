@@ -1,3 +1,4 @@
+using System.Buffers;
 using DotNetFoundryLLM.Abstractions;
 using DotNetFoundryLLM.Core;
 using DotNetFoundryLLM.Tensors;
@@ -24,7 +25,11 @@ public sealed class TopPSampler : ISampler
     /// <param name="seed">Optional random seed. <c>0</c> = random seed.</param>
     public TopPSampler(float p = 0.9f, ulong seed = 0)
     {
-        if (p <= 0f || p > 1f) throw new ArgumentOutOfRangeException(nameof(p), "p must be in (0, 1].");
+        if (p <= 0f || p > 1f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(p), "p must be in (0, 1].");
+        }
+
         _p = p;
         _random = seed == 0 ? new XoshiroRandom((ulong)Environment.TickCount64) : new XoshiroRandom(seed);
     }
@@ -46,43 +51,61 @@ public sealed class TopPSampler : ISampler
     /// </summary>
     public static void ApplyTopP(Span<float> probs, float p)
     {
-        if (p >= 1.0f) return; // No filtering needed.
-
-        // Build an index array sorted by probability (descending).
-        int[] indices = new int[probs.Length];
-        for (int i = 0; i < indices.Length; i++) indices[i] = i;
-
-        // Copy probabilities to an array so the lambda can capture it.
-        float[] probsArray = new float[probs.Length];
-        probs.CopyTo(probsArray);
-        Array.Sort(indices, (a, b) => probsArray[b].CompareTo(probsArray[a]));
-
-        // Walk sorted indices and zero out anything beyond the nucleus.
-        float cumulative = 0f;
-        bool nucleusReached = false;
-        for (int rank = 0; rank < indices.Length; rank++)
+        if (p >= 1.0f)
         {
-            if (nucleusReached)
+            return;
+        }
+
+        int length = probs.Length;
+        int[] indices = ArrayPool<int>.Shared.Rent(length);
+        float[] probsArray = ArrayPool<float>.Shared.Rent(length);
+
+        try
+        {
+            for (int i = 0; i < length; i++)
             {
-                probs[indices[rank]] = 0f;
+                indices[i] = i;
             }
-            else
+
+            probs.CopyTo(probsArray.AsSpan(0, length));
+            Array.Sort(indices, (a, b) => probsArray[b].CompareTo(probsArray[a]));
+
+            float cumulative = 0f;
+            bool nucleusReached = false;
+            for (int rank = 0; rank < length; rank++)
             {
-                cumulative += probs[indices[rank]];
-                if (cumulative >= p)
+                if (nucleusReached)
                 {
-                    // Include this token, then start zeroing out the rest.
-                    nucleusReached = true;
+                    probs[indices[rank]] = 0f;
+                }
+                else
+                {
+                    cumulative += probs[indices[rank]];
+                    if (cumulative >= p)
+                    {
+                        nucleusReached = true;
+                    }
+                }
+            }
+
+            float sum = 0f;
+            foreach (var v in probs)
+            {
+                sum += v;
+            }
+
+            if (sum > 0f)
+            {
+                for (int i = 0; i < probs.Length; i++)
+                {
+                    probs[i] /= sum;
                 }
             }
         }
-
-        // Re-normalize so the remaining probabilities sum to 1.
-        float sum = 0f;
-        foreach (var v in probs) sum += v;
-        if (sum > 0f)
+        finally
         {
-            for (int i = 0; i < probs.Length; i++) probs[i] /= sum;
+            ArrayPool<int>.Shared.Return(indices);
+            ArrayPool<float>.Shared.Return(probsArray);
         }
     }
 }
