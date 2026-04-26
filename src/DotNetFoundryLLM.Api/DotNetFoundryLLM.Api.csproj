@@ -12,5 +12,9 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../DotNetFoundryLLM.Hosting/DotNetFoundryLLM.Hosting.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.ModelFormats.Gguf/DotNetFoundryLLM.ModelFormats.Gguf.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.ChatTemplates/DotNetFoundryLLM.ChatTemplates.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.Telemetry/DotNetFoundryLLM.Telemetry.csproj" />
   </ItemGroup>
 </Project>

@@ -12,6 +12,7 @@ public sealed class GgufFile : IDisposable
     private readonly byte[]? _fileBytes;
     private readonly MemoryMappedFile? _mappedFile;
     private readonly MemoryMappedViewAccessor? _mappedAccessor;
+    private readonly Dictionary<string, GgufTensorInfo> _tensorIndex;
     private readonly long _dataStart;
     private byte[]? _scratch;
     private bool _disposed;
@@ -26,6 +27,7 @@ public sealed class GgufFile : IDisposable
         Version = version;
         Metadata = metadata;
         Tensors = tensors;
+        _tensorIndex = tensors.ToDictionary(t => t.Name, StringComparer.Ordinal);
         _fileBytes = fileBytes;
         _dataStart = dataStart;
     }
@@ -41,6 +43,7 @@ public sealed class GgufFile : IDisposable
         Version = version;
         Metadata = metadata;
         Tensors = tensors;
+        _tensorIndex = tensors.ToDictionary(t => t.Name, StringComparer.Ordinal);
         _mappedFile = mappedFile;
         _mappedAccessor = mappedAccessor;
         _dataStart = dataStart;
@@ -61,15 +64,7 @@ public sealed class GgufFile : IDisposable
     public GgufTensorInfo? FindTensor(string name)
     {
         ArgumentNullException.ThrowIfNull(name);
-        foreach (var t in Tensors)
-        {
-            if (t.Name == name)
-            {
-                return t;
-            }
-        }
-
-        return null;
+        return _tensorIndex.TryGetValue(name, out var info) ? info : null;
     }
 
     /// <summary>

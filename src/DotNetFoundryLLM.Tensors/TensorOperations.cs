@@ -74,15 +74,39 @@ public static class TensorOperations
         }
     }
 
+    /// <summary>Computes Gemma-style RMS norm over <paramref name="x"/> using scale <c>1 + weight[i]</c>, writing to <paramref name="dst"/>.</summary>
+    public static void GemmaRmsNorm(ReadOnlySpan<float> x, ReadOnlySpan<float> weight, Span<float> dst)
+    {
+        float sumSq = 0f;
+        for (int i = 0; i < x.Length; i++)
+        {
+            sumSq += x[i] * x[i];
+        }
+
+        float rms = 1f / MathF.Sqrt(sumSq / x.Length + 1e-6f);
+        for (int i = 0; i < x.Length; i++)
+        {
+            dst[i] = x[i] * rms * (1f + weight[i]);
+        }
+    }
+
     /// <summary>Applies the GELU activation element-wise in-place.</summary>
     public static void Gelu(Span<float> x)
     {
-        const float c = 0.7978845608028654f; // sqrt(2/pi)
-        const float k = 0.044715f;
-        for (var i = 0; i < x.Length; i++)
+        for (int i = 0; i < x.Length; i++)
         {
-            var v = x[i];
-            x[i] = 0.5f * v * (1f + MathF.Tanh(c * (v + k * v * v * v)));
+            float v = x[i];
+            x[i] = 0.5f * v * (1f + MathF.Tanh(0.7978845608f * (v + 0.044715f * v * v * v)));
+        }
+    }
+
+    /// <summary>Applies tanh-based softcapping to logits in-place.</summary>
+    public static void SoftCap(Span<float> x, float cap)
+    {
+        float inv = 1f / cap;
+        for (int i = 0; i < x.Length; i++)
+        {
+            x[i] = MathF.Tanh(x[i] * inv) * cap;
         }
     }
 
@@ -171,16 +195,19 @@ public static class TensorOperations
     /// <param name="position">The token position.</param>
     /// <param name="headDim">Number of dimensions per head (must be even).</param>
     /// <param name="baseFreq">Base frequency (default 10000).</param>
-    public static void ApplyRope(Span<float> x, int position, int headDim, float baseFreq = 10000f)
+    /// <param name="ropeScalingFactor">Scaling factor for the rope position (default 1.0).</param>
+    public static void ApplyRope(Span<float> x, int position, int headDim, float baseFreq = 10000f, float ropeScalingFactor = 1.0f)
     {
         if (headDim % 2 != 0)
         {
             throw new ArgumentException("headDim must be even.");
         }
 
+        float scaledPosition = ropeScalingFactor > 0f ? position / ropeScalingFactor : position;
+
         for (var i = 0; i < headDim / 2; i++)
         {
-            var theta = position / MathF.Pow(baseFreq, 2f * i / headDim);
+            var theta = scaledPosition / MathF.Pow(baseFreq, 2f * i / headDim);
             var cos = MathF.Cos(theta);
             var sin = MathF.Sin(theta);
             var x0 = x[i * 2];

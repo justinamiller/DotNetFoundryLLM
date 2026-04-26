@@ -17,8 +17,13 @@ namespace DotNetFoundryLLM.Inference;
 /// </summary>
 public sealed class LlamaLanguageModel : ILanguageModel
 {
-    private readonly LlamaWeights _weights;
-    private readonly LlamaForwardPass _forward;
+    private readonly IDisposable _modelResources;
+    private readonly int _layerCount;
+    private readonly int _maxContextLength;
+    private readonly int _kvDim;
+    private readonly int _bosTokenId;
+    private readonly int _eosTokenId;
+    private readonly Func<IForwardPass> _forwardFactory;
     private readonly ITokenizer _tokenizer;
     private readonly ISampler _defaultSampler;
     private readonly ILogger<LlamaLanguageModel> _logger;
@@ -28,36 +33,68 @@ public sealed class LlamaLanguageModel : ILanguageModel
     /// <summary>
     /// Initializes a new <see cref="LlamaLanguageModel"/>.
     /// </summary>
-    /// <param name="weights">Dequantized model weights.</param>
+    /// <param name="modelResources">Owned model resources to dispose with the model.</param>
+    /// <param name="layerCount">Number of transformer layers.</param>
+    /// <param name="maxContextLength">Maximum supported context length.</param>
+    /// <param name="kvDim">Total key/value dimension.</param>
+    /// <param name="bosTokenId">Beginning-of-sequence token id.</param>
+    /// <param name="eosTokenId">End-of-sequence token id.</param>
+    /// <param name="forwardFactory">Factory that creates a fresh forward-pass instance per request.</param>
     /// <param name="tokenizer">Tokenizer compatible with the model vocabulary.</param>
     /// <param name="defaultSampler">Sampler used when a request does not override sampling.</param>
     /// <param name="metadata">Model metadata (architecture, parameter count, etc.).</param>
     /// <param name="logger">Optional logger; defaults to a no-op logger.</param>
     /// <param name="telemetry">Optional telemetry recorder; defaults to <see cref="NullInferenceTelemetry"/>.</param>
     public LlamaLanguageModel(
-        LlamaWeights weights,
+        IDisposable modelResources,
+        int layerCount,
+        int maxContextLength,
+        int kvDim,
+        int bosTokenId,
+        int eosTokenId,
+        Func<IForwardPass> forwardFactory,
         ITokenizer tokenizer,
         ISampler defaultSampler,
         ModelMetadata metadata,
         ILogger<LlamaLanguageModel>? logger = null,
         IInferenceTelemetry? telemetry = null)
     {
-        ArgumentNullException.ThrowIfNull(weights);
+        ArgumentNullException.ThrowIfNull(modelResources);
+        ArgumentNullException.ThrowIfNull(forwardFactory);
         ArgumentNullException.ThrowIfNull(tokenizer);
         ArgumentNullException.ThrowIfNull(defaultSampler);
         ArgumentNullException.ThrowIfNull(metadata);
 
-        _weights        = weights;
-        _tokenizer      = tokenizer;
-        _defaultSampler = defaultSampler;
-        Metadata        = metadata;
-        _logger         = logger ?? NullLogger<LlamaLanguageModel>.Instance;
-        _telemetry      = telemetry ?? NullInferenceTelemetry.Instance;
-        _forward        = new LlamaForwardPass(weights);
+        _modelResources   = modelResources;
+        _layerCount       = layerCount;
+        _maxContextLength = maxContextLength;
+        _kvDim            = kvDim;
+        _bosTokenId       = bosTokenId;
+        _eosTokenId       = eosTokenId;
+        _forwardFactory   = forwardFactory;
+        _tokenizer        = tokenizer;
+        _defaultSampler   = defaultSampler;
+        Metadata          = metadata;
+        _logger           = logger ?? NullLogger<LlamaLanguageModel>.Instance;
+        _telemetry        = telemetry ?? NullInferenceTelemetry.Instance;
     }
 
     /// <inheritdoc />
     public ModelMetadata Metadata { get; }
+
+    /// <inheritdoc />
+    public IAsyncEnumerable<TokenStreamChunk> GenerateAsync(
+        ChatRequest request,
+        IChatTemplate chatTemplate,
+        CancellationToken cancellationToken = default)
+    {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(chatTemplate);
+
+        var prompt = chatTemplate.Render(request.Messages, addGenerationPrompt: true);
+        return GenerateAsync(new CompletionRequest(prompt, request.Options), cancellationToken);
+    }
 
     /// <inheritdoc />
     public async IAsyncEnumerable<TokenStreamChunk> GenerateAsync(
@@ -68,6 +105,7 @@ public sealed class LlamaLanguageModel : ILanguageModel
         ArgumentNullException.ThrowIfNull(request);
 
         var opts = request.Options ?? new GenerationOptions();
+        var forward = _forwardFactory();
 
         _logger.LogGenerationStarted(opts.MaxTokens, opts.Temperature);
 
@@ -88,21 +126,20 @@ public sealed class LlamaLanguageModel : ILanguageModel
             var promptTokens = _tokenizer.Encode(request.Prompt.AsSpan(), addBos: true, addEos: false);
             promptIds = promptTokens.ToArray();
 
-            var cfg = _weights.Config;
-            using var kvCache = new KvCache(cfg.LayerCount, cfg.MaxContextLength, cfg.KvDim);
+            using var kvCache = new KvCache(_layerCount, _maxContextLength, _kvDim);
 
             int position = 0;
             var prefillSw = Stopwatch.StartNew();
             for (int i = 0; i < promptIds.Length - 1; i++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                _forward.Forward(promptIds[i], position++, kvCache);
+                forward.Forward(promptIds[i], position++, kvCache);
             }
 
             prefillSw.Stop();
             prefillMs = prefillSw.ElapsedMilliseconds;
 
-            int nextToken = promptIds.Length > 0 ? promptIds[^1] : cfg.BosTokenId;
+            int nextToken = promptIds.Length > 0 ? promptIds[^1] : _bosTokenId;
 
             var stopSeqs = opts.StopSequences;
             var stopBuffer = new StringBuilder();
@@ -116,10 +153,10 @@ public sealed class LlamaLanguageModel : ILanguageModel
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                _forward.Forward(nextToken, position++, kvCache);
+                forward.Forward(nextToken, position++, kvCache);
 
-                var logits = new float[_forward.Logits.Length];
-                _forward.Logits.CopyTo(logits);
+                var logits = new float[forward.Logits.Length];
+                forward.Logits.CopyTo(logits);
 
                 if (opts.RepetitionPenalty != 1.0f)
                 {
@@ -164,7 +201,7 @@ public sealed class LlamaLanguageModel : ILanguageModel
 
                 generated.Add(nextToken);
 
-                bool isEos = nextToken == cfg.EosTokenId;
+                bool isEos = nextToken == _eosTokenId;
                 string tokenText = _tokenizer.DecodeToken(nextToken);
 
                 bool hitStop = false;
@@ -272,13 +309,13 @@ public sealed class LlamaLanguageModel : ILanguageModel
         if (!_disposed)
         {
             _disposed = true;
-            _weights.Dispose();
+            _modelResources.Dispose();
         }
     }
 
     private ISampler BuildSampler(GenerationOptions opts)
     {
-        if (opts.Temperature == 1.0f && opts.TopK == 0 && opts.TopP == 1.0f)
+        if (opts.Temperature == 1.0f && opts.TopK == 0 && opts.TopP == 1.0f && !opts.Seed.HasValue)
         {
             return _defaultSampler;
         }

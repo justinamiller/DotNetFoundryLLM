@@ -18,6 +18,12 @@ public interface ILanguageModel : IDisposable
 
     /// <summary>Generates tokens for the given completion request.</summary>
     IAsyncEnumerable<TokenStreamChunk> GenerateAsync(CompletionRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Generates tokens for the given chat request using the provided template.</summary>
+    IAsyncEnumerable<TokenStreamChunk> GenerateAsync(
+        ChatRequest request,
+        IChatTemplate chatTemplate,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>A loaded embedding model.</summary>
