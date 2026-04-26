@@ -1,5 +1,5 @@
 namespace DotNetFoundryLLM.Architectures;
 
-// This namespace is reserved for Phase 2+ implementation.
-// Placeholder to ensure the project compiles.
+// Phase 4 implementation lives in LlamaConfig.cs, LlamaWeights.cs, LlamaForwardPass.cs.
+// This file is intentionally empty.
 internal static class Placeholder { }

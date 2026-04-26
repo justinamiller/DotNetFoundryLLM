@@ -5,6 +5,12 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.Core/DotNetFoundryLLM.Core.csproj" />
     <ProjectReference Include="../DotNetFoundryLLM.Tensors/DotNetFoundryLLM.Tensors.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.Quantization/DotNetFoundryLLM.Quantization.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.Tokenization/DotNetFoundryLLM.Tokenization.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.Sampling/DotNetFoundryLLM.Sampling.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.Architectures/DotNetFoundryLLM.Architectures.csproj" />
+    <ProjectReference Include="../DotNetFoundryLLM.Inference/DotNetFoundryLLM.Inference.csproj" />
   </ItemGroup>
 </Project>
