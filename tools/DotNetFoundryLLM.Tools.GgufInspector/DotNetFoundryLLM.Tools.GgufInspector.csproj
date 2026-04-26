@@ -5,6 +5,7 @@
     <AssemblyName>DotNetFoundryLLM.Tools.GgufInspector</AssemblyName>
     <IsAotCompatible>false</IsAotCompatible>
     <IsTrimmable>false</IsTrimmable>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/DotNetFoundryLLM.ModelFormats.Gguf/DotNetFoundryLLM.ModelFormats.Gguf.csproj" />

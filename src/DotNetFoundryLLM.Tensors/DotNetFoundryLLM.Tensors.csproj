@@ -2,6 +2,10 @@
   <PropertyGroup>
     <RootNamespace>DotNetFoundryLLM.Tensors</RootNamespace>
     <AssemblyName>DotNetFoundryLLM.Tensors</AssemblyName>
+    <PackageId>DotNetFoundryLLM.Tensors</PackageId>
+    <Description>Tensor operations and utilities for LLM inference computations.</Description>
+    <PackageTags>llm;inference;gguf;dotnet;ai;openai</PackageTags>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="System.Numerics.Tensors" />

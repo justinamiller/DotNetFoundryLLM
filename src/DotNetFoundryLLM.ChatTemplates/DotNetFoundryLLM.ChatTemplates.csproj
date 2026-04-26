@@ -2,6 +2,10 @@
   <PropertyGroup>
     <RootNamespace>DotNetFoundryLLM.ChatTemplates</RootNamespace>
     <AssemblyName>DotNetFoundryLLM.ChatTemplates</AssemblyName>
+    <PackageId>DotNetFoundryLLM.ChatTemplates</PackageId>
+    <Description>Chat templates for LLaMA 3, Mistral, Gemma 2, and Qwen 2 architectures.</Description>
+    <PackageTags>llm;inference;gguf;dotnet;ai;openai</PackageTags>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />

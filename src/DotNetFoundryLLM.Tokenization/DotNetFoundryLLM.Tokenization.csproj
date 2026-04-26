@@ -2,6 +2,10 @@
   <PropertyGroup>
     <RootNamespace>DotNetFoundryLLM.Tokenization</RootNamespace>
     <AssemblyName>DotNetFoundryLLM.Tokenization</AssemblyName>
+    <PackageId>DotNetFoundryLLM.Tokenization</PackageId>
+    <Description>BPE tokenizer implementation with full vocabulary and merge support for LLM inference.</Description>
+    <PackageTags>llm;inference;gguf;dotnet;ai;openai</PackageTags>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />

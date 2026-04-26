@@ -2,5 +2,9 @@
   <PropertyGroup>
     <RootNamespace>DotNetFoundryLLM.Abstractions</RootNamespace>
     <AssemblyName>DotNetFoundryLLM.Abstractions</AssemblyName>
+    <PackageId>DotNetFoundryLLM.Abstractions</PackageId>
+    <Description>Core abstractions and interfaces for DotNetFoundryLLM inference engine.</Description>
+    <PackageTags>llm;inference;gguf;dotnet;ai;openai</PackageTags>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
 </Project>

@@ -2,6 +2,10 @@
   <PropertyGroup>
     <RootNamespace>DotNetFoundryLLM.Architectures</RootNamespace>
     <AssemblyName>DotNetFoundryLLM.Architectures</AssemblyName>
+    <PackageId>DotNetFoundryLLM.Architectures</PackageId>
+    <Description>LLM architecture implementations for LLaMA 3, Mistral, Gemma 2, and Qwen 2.</Description>
+    <PackageTags>llm;inference;gguf;dotnet;ai;openai</PackageTags>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />

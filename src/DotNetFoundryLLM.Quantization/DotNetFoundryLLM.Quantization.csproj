@@ -2,6 +2,10 @@
   <PropertyGroup>
     <RootNamespace>DotNetFoundryLLM.Quantization</RootNamespace>
     <AssemblyName>DotNetFoundryLLM.Quantization</AssemblyName>
+    <PackageId>DotNetFoundryLLM.Quantization</PackageId>
+    <Description>Dequantization implementations for F32, F16, BF16, Q4_0, Q4_K, Q5_K, Q6_K, Q8_0, Q8_K tensor formats.</Description>
+    <PackageTags>llm;inference;gguf;dotnet;ai;openai</PackageTags>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />

@@ -2,6 +2,10 @@
   <PropertyGroup>
     <RootNamespace>DotNetFoundryLLM.ModelFormats.SafeTensors</RootNamespace>
     <AssemblyName>DotNetFoundryLLM.ModelFormats.SafeTensors</AssemblyName>
+    <PackageId>DotNetFoundryLLM.ModelFormats.SafeTensors</PackageId>
+    <Description>SafeTensors model format support - reserved for a future release and not functional in v1.0.0.</Description>
+    <PackageTags>llm;inference;gguf;dotnet;ai;openai</PackageTags>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />

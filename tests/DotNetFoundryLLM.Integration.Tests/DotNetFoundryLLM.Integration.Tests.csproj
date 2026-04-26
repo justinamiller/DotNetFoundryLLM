@@ -12,5 +12,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../../src/DotNetFoundryLLM.Runtime/DotNetFoundryLLM.Runtime.csproj" />
+    <ProjectReference Include="../../src/DotNetFoundryLLM.Tokenization/DotNetFoundryLLM.Tokenization.csproj" />
+    <ProjectReference Include="../../src/DotNetFoundryLLM.Sampling/DotNetFoundryLLM.Sampling.csproj" />
+    <ProjectReference Include="../../src/DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />
   </ItemGroup>
 </Project>
