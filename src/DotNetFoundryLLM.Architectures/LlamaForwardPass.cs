@@ -36,6 +36,7 @@ public sealed class LlamaForwardPass : IForwardPass
     private readonly float[] _ffnBuf;  // [intermediate_size]
     private readonly float[] _ffnUp;   // [intermediate_size]
     private readonly float[] _logits;  // [vocab_size]
+    private readonly float[] _ropeFreqs; // [head_dim / 2]
 
     /// <summary>Initializes a forward-pass engine for the given weights.</summary>
     public LlamaForwardPass(LlamaWeights weights)
@@ -59,6 +60,14 @@ public sealed class LlamaForwardPass : IForwardPass
         _ffnBuf  = new float[_cfg.IntermediateSize];
         _ffnUp   = new float[_cfg.IntermediateSize];
         _logits  = new float[_cfg.VocabSize];
+
+        // Precompute RoPE frequencies
+        int half = _cfg.HeadDim / 2;
+        _ropeFreqs = new float[half];
+        for (int i = 0; i < half; i++)
+        {
+            _ropeFreqs[i] = 1f / MathF.Pow(_cfg.RopeBaseFreq, 2f * i / _cfg.HeadDim);
+        }
     }
 
     /// <summary>Logits buffer populated after each call to <see cref="Forward"/>.</summary>
@@ -127,12 +136,12 @@ public sealed class LlamaForwardPass : IForwardPass
     {
         for (int h = 0; h < numHeads; h++)
         {
+            float scalingFactor = ShouldScaleRope(_cfg.RopeScalingType) ? _cfg.RopeScalingFactor : 1.0f;
+            int scaledPosition = scalingFactor > 0f ? (int)(position / scalingFactor) : position;
             TensorOperations.ApplyRope(
                 vec.AsSpan(h * headDim, headDim),
-                position,
-                headDim,
-                _cfg.RopeBaseFreq,
-                ShouldScaleRope(_cfg.RopeScalingType) ? _cfg.RopeScalingFactor : 1.0f);
+                scaledPosition,
+                _ropeFreqs);
         }
     }
 
@@ -186,11 +195,7 @@ public sealed class LlamaForwardPass : IForwardPass
                 for (int t = 0; t < seqLen; t++)
                 {
                     var vSlice = allValues.Slice(t * kvDim + kvHead * headDim, headDim);
-                    float w    = scores[t];
-                    for (int d = 0; d < headDim; d++)
-                    {
-                        outSlice[d] += w * vSlice[d];
-                    }
+                    TensorPrimitives.MultiplyAdd(vSlice, scores[t], outSlice, outSlice);
                 }
             }
         }
@@ -212,7 +217,7 @@ public sealed class LlamaForwardPass : IForwardPass
         int ffnDim = _cfg.IntermediateSize;
 
         LinearProjection(xNorm, _weights.FfnGate[layer], _ffnBuf, ffnDim);
-        TensorOperations.Silu(_ffnBuf);
+        TensorOperations.Silu(_ffnBuf.AsSpan(0, ffnDim), _ffnUp.AsSpan(0, ffnDim));
 
         LinearProjection(xNorm, _weights.FfnUp[layer], _ffnUp, ffnDim);
 
@@ -227,6 +232,7 @@ public sealed class LlamaForwardPass : IForwardPass
     /// <summary>
     /// Computes <c>dst[i] = Σ_j weight[i*inDim + j] * src[j]</c> for <c>i</c> in [0, outDim).
     /// </summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     private static void LinearProjection(
         ReadOnlySpan<float> src,
         float[] weight,
@@ -234,9 +240,21 @@ public sealed class LlamaForwardPass : IForwardPass
         int outDim)
     {
         int inDim = src.Length;
-        for (int i = 0; i < outDim; i++)
+        int i = 0;
+        
+        // 4-row unroll to allow CPU pipelining of independent dot products
+        for (; i <= outDim - 4; i += 4)
         {
-            dst[i] = TensorOperations.Dot(src, weight.AsSpan(i * inDim, inDim));
+            dst[i]     = TensorPrimitives.Dot(src, weight.AsSpan(i       * inDim, inDim));
+            dst[i + 1] = TensorPrimitives.Dot(src, weight.AsSpan((i + 1) * inDim, inDim));
+            dst[i + 2] = TensorPrimitives.Dot(src, weight.AsSpan((i + 2) * inDim, inDim));
+            dst[i + 3] = TensorPrimitives.Dot(src, weight.AsSpan((i + 3) * inDim, inDim));
+        }
+        
+        // Scalar tail for remaining rows
+        for (; i < outDim; i++)
+        {
+            dst[i] = TensorPrimitives.Dot(src, weight.AsSpan(i * inDim, inDim));
         }
     }
 }

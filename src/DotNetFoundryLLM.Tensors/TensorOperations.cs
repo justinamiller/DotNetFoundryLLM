@@ -39,6 +39,7 @@ public static class TensorOperations
     }
 
     /// <summary>Computes RMS norm over <paramref name="x"/> using scale <paramref name="w"/>, writing to <paramref name="dst"/>.</summary>
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static void RmsNorm(ReadOnlySpan<float> x, ReadOnlySpan<float> w, Span<float> dst, float eps = 1e-5f)
     {
         if (x.Length != w.Length || x.Length != dst.Length)
@@ -49,8 +50,10 @@ public static class TensorOperations
         float sumSq = TensorPrimitives.Dot(x, x);
         float rms = 1.0f / MathF.Sqrt(sumSq / x.Length + eps);
 
-        TensorPrimitives.Multiply(x, rms, dst);
-        TensorPrimitives.Multiply(dst, w, dst);
+        for (int i = 0; i < x.Length; i++)
+        {
+            dst[i] = x[i] * rms * w[i];
+        }
     }
 
     /// <summary>Applies the SiLU activation (x * sigmoid(x)) element-wise in-place.</summary>
@@ -72,6 +75,18 @@ public static class TensorOperations
         {
             ArrayPool<float>.Shared.Return(scratch);
         }
+    }
+
+    /// <summary>Applies the SiLU activation (x * sigmoid(x)) element-wise in-place using provided scratch buffer.</summary>
+    public static void Silu(Span<float> x, Span<float> scratch)
+    {
+        if (x.IsEmpty)
+        {
+            return;
+        }
+
+        TensorPrimitives.Sigmoid(x, scratch);
+        TensorPrimitives.Multiply(x, scratch, x);
     }
 
     /// <summary>Computes Gemma-style RMS norm over <paramref name="x"/> using scale <c>1 + weight[i]</c>, writing to <paramref name="dst"/>.</summary>
@@ -176,16 +191,7 @@ public static class TensorOperations
             throw new ArgumentException("Span must not be empty.", nameof(x));
         }
 
-        int best = 0;
-        for (int i = 1; i < x.Length; i++)
-        {
-            if (x[i] > x[best])
-            {
-                best = i;
-            }
-        }
-
-        return best;
+        return TensorPrimitives.IndexOfMax(x);
     }
 
     /// <summary>
@@ -213,6 +219,24 @@ public static class TensorOperations
             var x0 = x[i * 2];
             var x1 = x[i * 2 + 1];
             x[i * 2] = x0 * cos - x1 * sin;
+            x[i * 2 + 1] = x0 * sin + x1 * cos;
+        }
+    }
+
+    /// <summary>
+    /// Applies Rotary Position Embeddings (RoPE) to query/key vectors in-place using precomputed frequencies.
+    /// </summary>
+    /// <param name="x">The vector to rotate (headDim elements).</param>
+    /// <param name="position">The token position.</param>
+    /// <param name="freqs">Precomputed base frequencies (length = headDim / 2).</param>
+    public static void ApplyRope(Span<float> x, int position, ReadOnlySpan<float> freqs)
+    {
+        for (int i = 0; i < freqs.Length; i++)
+        {
+            float theta = position * freqs[i];
+            float cos = MathF.Cos(theta), sin = MathF.Sin(theta);
+            float x0 = x[i * 2], x1 = x[i * 2 + 1];
+            x[i * 2]     = x0 * cos - x1 * sin;
             x[i * 2 + 1] = x0 * sin + x1 * cos;
         }
     }

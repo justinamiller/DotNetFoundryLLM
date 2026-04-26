@@ -116,6 +116,7 @@ public sealed class LlamaLanguageModel : ILanguageModel
         long ttftMs = 0;
         string finishReason = "unknown";
         List<TokenInsight>? tokenInsights = opts.ReturnLogProbs ? new List<TokenInsight>(opts.MaxTokens) : null;
+        float[] logitsBuf = new float[forward.Logits.Length];
 
         _telemetry.OnGenerationStarted(Metadata.ModelFamily);
 
@@ -155,12 +156,11 @@ public sealed class LlamaLanguageModel : ILanguageModel
 
                 forward.Forward(nextToken, position++, kvCache);
 
-                var logits = new float[forward.Logits.Length];
-                forward.Logits.CopyTo(logits);
+                forward.Logits.CopyTo(logitsBuf);
 
                 if (opts.RepetitionPenalty != 1.0f)
                 {
-                    ApplyRepetitionPenalty(logits, generated, opts.RepetitionPenalty);
+                    ApplyRepetitionPenalty(logitsBuf, generated, opts.RepetitionPenalty);
                 }
 
                 float logProb = 0f;
@@ -168,13 +168,13 @@ public sealed class LlamaLanguageModel : ILanguageModel
 
                 if (opts.ReturnLogProbs)
                 {
-                    float[] rawLogits = ArrayPool<float>.Shared.Rent(logits.Length);
+                    float[] rawLogits = ArrayPool<float>.Shared.Rent(logitsBuf.Length);
                     try
                     {
-                        var rawLogitsSpan = rawLogits.AsSpan(0, logits.Length);
-                        logits.CopyTo(rawLogitsSpan);
+                        var rawLogitsSpan = rawLogits.AsSpan(0, logitsBuf.Length);
+                        logitsBuf.CopyTo(rawLogitsSpan);
 
-                        nextToken = sampler.Sample(logits);
+                        nextToken = sampler.Sample(logitsBuf);
 
                         TensorOperations.Softmax(rawLogitsSpan);
                         logProb = MathF.Log(MathF.Max(rawLogitsSpan[nextToken], 1e-10f));
@@ -191,7 +191,7 @@ public sealed class LlamaLanguageModel : ILanguageModel
                 }
                 else
                 {
-                    nextToken = sampler.Sample(logits);
+                    nextToken = sampler.Sample(logitsBuf);
                 }
 
                 if (generated.Count == 0)
