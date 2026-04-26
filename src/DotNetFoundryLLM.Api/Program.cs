@@ -1,5 +1,7 @@
+using System.Text;
 using System.Text.Json.Serialization;
 using DotNetFoundryLLM.Abstractions;
+using DotNetFoundryLLM.Api;
 using DotNetFoundryLLM.ChatTemplates;
 using DotNetFoundryLLM.ModelFormats.Gguf;
 using DotNetFoundryLLM.Telemetry;
@@ -11,31 +13,67 @@ builder.Services.AddSingleton<GgufModelLoader>();
 builder.Services.AddSingleton<ChatTemplateRegistry>();
 builder.Services.AddSingleton<ModelState>(sp =>
 {
+    var logger = sp.GetRequiredService<ILogger<Program>>();
     var path = Environment.GetEnvironmentVariable("FOUNDRY_MODEL_PATH");
     if (string.IsNullOrWhiteSpace(path))
     {
         return new(null, null);
     }
 
+    if (!path.EndsWith(".gguf", StringComparison.OrdinalIgnoreCase))
+    {
+        AppLogs.ModelPathInvalidExtension(logger, path);
+        return new(path, null);
+    }
+
+    if (!File.Exists(path))
+    {
+        AppLogs.ModelPathFileNotFound(logger, path);
+        return new(path, null);
+    }
+
     try
     {
         return new(path, sp.GetRequiredService<GgufModelLoader>().LoadAsync(path).GetAwaiter().GetResult());
     }
-    catch
+    catch (Exception ex)
     {
+        AppLogs.ModelLoadFailed(logger, ex.Message);
         return new(path, null);
     }
 });
 var app = builder.Build();
 app.MapGet("/health", () => "ok");
-app.MapPost("/v1/completions", async Task<IResult> (CompletionApiRequest body, ModelState state, HttpContext http, CancellationToken ct) =>
+
+app.MapPost("/v1/completions", async Task<IResult> (CompletionApiRequest body, ModelState state, HttpContext http, ILogger<Program> logger, CancellationToken ct) =>
 {
-    if (state.Model is null)
+    const string endpoint = "/v1/completions";
+
+    if (string.IsNullOrEmpty(body.Prompt))
     {
-        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        return ValidationError(logger, endpoint, "prompt is required");
+    }
+    if (body.Prompt.Length > 65536)
+    {
+        return ValidationError(logger, endpoint, "prompt exceeds maximum length of 65536 characters");
+    }
+    if (body.MaxTokens is < 1 or > 4096)
+    {
+        return ValidationError(logger, endpoint, "max_tokens must be between 1 and 4096");
+    }
+    if (body.Temperature is < 0.0f or > 2.0f)
+    {
+        return ValidationError(logger, endpoint, "temperature must be between 0 and 2");
     }
 
-    var request = new CompletionRequest(body.Prompt ?? string.Empty, body.ToOptions());
+    AppLogs.CompletionRequestReceived(logger, endpoint, body.Stream ?? false, body.Prompt.Length);
+
+    if (state.Model is null)
+    {
+        return state.Path is null ? ModelNotLoadedError() : ModelLoadFailedError();
+    }
+
+    var request = new CompletionRequest(body.Prompt, body.ToOptions());
     if (body.Stream == true)
     {
         http.Response.Headers.Append("Content-Type", "text/event-stream");
@@ -45,32 +83,61 @@ app.MapPost("/v1/completions", async Task<IResult> (CompletionApiRequest body, M
             await http.Response.WriteAsync($"data: {System.Text.Json.JsonSerializer.Serialize(payload)}\n\n", ct);
             await http.Response.Body.FlushAsync(ct);
         }
-
         await http.Response.WriteAsync("data: [DONE]\n\n", ct);
         return Results.Empty;
     }
 
-    string output = string.Empty;
+    var sb = new StringBuilder();
     string finishReason = "stop";
     Usage? usage = null;
     await foreach (var chunk in state.Model.GenerateAsync(request, ct))
     {
-        output += chunk.Token.Text;
+        sb.Append(chunk.Token.Text);
         finishReason = chunk.FinishReason ?? finishReason;
         usage = chunk.Usage ?? usage;
     }
-
+    var output = sb.ToString();
+    AppLogs.GenerationCompleted(logger, endpoint, usage?.CompletionTokens ?? 0, finishReason);
     return Results.Ok(new { choices = new[] { new { text = output, finish_reason = finishReason } }, usage = usage ?? new Usage(0, 0, 0) });
 });
-app.MapPost("/v1/chat/completions", async Task<IResult> (ChatCompletionApiRequest body, ModelState state, ChatTemplateRegistry templates, HttpContext http, CancellationToken ct) =>
+
+app.MapPost("/v1/chat/completions", async Task<IResult> (ChatCompletionApiRequest body, ModelState state, ChatTemplateRegistry templates, HttpContext http, ILogger<Program> logger, CancellationToken ct) =>
 {
+    const string endpoint = "/v1/chat/completions";
+
+    if (body.Messages is null or { Length: 0 })
+    {
+        return ValidationError(logger, endpoint, "messages is required");
+    }
+    if (body.Messages.Length > 100)
+    {
+        return ValidationError(logger, endpoint, "messages array exceeds maximum length of 100");
+    }
+    foreach (var m in body.Messages)
+    {
+        if (string.IsNullOrEmpty(m.Content))
+        {
+            return ValidationError(logger, endpoint, "message content must not be empty");
+        }
+    }
+    if (body.MaxTokens is < 1 or > 4096)
+    {
+        return ValidationError(logger, endpoint, "max_tokens must be between 1 and 4096");
+    }
+    if (body.Temperature is < 0.0f or > 2.0f)
+    {
+        return ValidationError(logger, endpoint, "temperature must be between 0 and 2");
+    }
+
+    AppLogs.ChatCompletionRequestReceived(logger, endpoint, body.Stream ?? false, body.Messages.Length);
+
     if (state.Model is null)
     {
-        return Results.StatusCode(StatusCodes.Status503ServiceUnavailable);
+        return state.Path is null ? ModelNotLoadedError() : ModelLoadFailedError();
     }
 
     var template = templates.ForFamily(state.Model.Metadata.ModelFamily);
-    var request = new ChatRequest((body.Messages ?? []).Select(m => new ChatMessage(ParseRole(m.Role), m.Content ?? string.Empty)).ToArray(), body.ToOptions());
+    var request = new ChatRequest(body.Messages.Select(m => new ChatMessage(ParseRole(m.Role), m.Content ?? string.Empty)).ToArray(), body.ToOptions());
     if (body.Stream == true)
     {
         http.Response.Headers.Append("Content-Type", "text/event-stream");
@@ -80,24 +147,37 @@ app.MapPost("/v1/chat/completions", async Task<IResult> (ChatCompletionApiReques
             await http.Response.WriteAsync($"data: {System.Text.Json.JsonSerializer.Serialize(payload)}\n\n", ct);
             await http.Response.Body.FlushAsync(ct);
         }
-
         await http.Response.WriteAsync("data: [DONE]\n\n", ct);
         return Results.Empty;
     }
 
-    string output = string.Empty;
+    var sb = new StringBuilder();
     string finishReason = "stop";
     Usage? usage = null;
     await foreach (var chunk in state.Model.GenerateAsync(request, template, ct))
     {
-        output += chunk.Token.Text;
+        sb.Append(chunk.Token.Text);
         finishReason = chunk.FinishReason ?? finishReason;
         usage = chunk.Usage ?? usage;
     }
-
+    var output = sb.ToString();
+    AppLogs.GenerationCompleted(logger, endpoint, usage?.CompletionTokens ?? 0, finishReason);
     return Results.Ok(new { choices = new[] { new { message = new { role = "assistant", content = output }, finish_reason = finishReason } }, usage = usage ?? new Usage(0, 0, 0) });
 });
+
 app.Run();
+
+static IResult ValidationError(ILogger logger, string endpoint, string reason)
+{
+    AppLogs.ValidationFailed(logger, endpoint, reason);
+    return Results.Json(new ErrorBody(new ErrorDetail(reason, "invalid_request_error", "invalid_value")), statusCode: 400);
+}
+
+static IResult ModelNotLoadedError() =>
+    Results.Json(new ErrorBody(new ErrorDetail("No model is loaded. Set the FOUNDRY_MODEL_PATH environment variable.", "service_unavailable", "model_not_loaded")), statusCode: 503);
+
+static IResult ModelLoadFailedError() =>
+    Results.Json(new ErrorBody(new ErrorDetail("Model failed to load. Check server logs.", "service_unavailable", "model_load_failed")), statusCode: 503);
 
 static Role ParseRole(string? role) => role?.ToLowerInvariant() switch
 {
@@ -117,3 +197,5 @@ sealed record ChatCompletionApiRequest(ApiMessage[]? Messages, string? Model, [p
 {
     public GenerationOptions ToOptions() => new() { MaxTokens = MaxTokens ?? 512, Temperature = Temperature ?? 1.0f, TopP = TopP ?? 1.0f, TopK = TopK ?? 0, Seed = Seed, StopSequences = Stop };
 }
+sealed record ErrorDetail(string Message, string Type, string Code);
+sealed record ErrorBody([property: JsonPropertyName("error")] ErrorDetail Error);

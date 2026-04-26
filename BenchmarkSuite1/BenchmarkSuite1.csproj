@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>net10.0</TargetFrameworks>
+    <OutputType>Exe</OutputType>
+    <NoWarn>$(NoWarn);CA1707;CS1591;CA1852</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" />
+    <PackageReference Include="Microsoft.VisualStudio.DiagnosticsHub.BenchmarkDotNetDiagnosers" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\src\DotNetFoundryLLM.Tokenization\DotNetFoundryLLM.Tokenization.csproj" />
+  </ItemGroup>
+</Project>

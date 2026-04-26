@@ -62,7 +62,7 @@ public sealed partial class BpeTokenizer : ITokenizer
     /// <inheritdoc />
     public ReadOnlyMemory<int> Encode(ReadOnlySpan<char> text, bool addBos = true, bool addEos = false)
     {
-        var result = new List<int>();
+        var result = new List<int>(text.Length / 2);
 
         if (addBos)
         {
@@ -70,10 +70,9 @@ public sealed partial class BpeTokenizer : ITokenizer
         }
 
         // Pre-tokenize and BPE-encode each chunk.
-        var textStr = text.ToString();
-        foreach (Match match in _splitPattern.Matches(textStr))
+        foreach (var match in _splitPattern.EnumerateMatches(text))
         {
-            EncodeChunk(match.Value, result);
+            EncodeChunk(text.Slice(match.Index, match.Length).ToString(), result);
         }
 
         if (addEos)
@@ -124,9 +123,10 @@ public sealed partial class BpeTokenizer : ITokenizer
     {
         var tokenStr = _vocab.GetToken(tokenId);
 
-        if (tokenStr.Contains('\u2581'))
+        var replaced = tokenStr.Replace('\u2581', ' ');
+        if (!ReferenceEquals(replaced, tokenStr))
         {
-            return tokenStr.Replace('\u2581', ' ');
+            return replaced;
         }
 
         var bytes = new byte[tokenStr.Length];
@@ -152,9 +152,9 @@ public sealed partial class BpeTokenizer : ITokenizer
         // Encode each UTF-8 byte of the chunk as a single BPE character symbol.
         var bytes = Encoding.UTF8.GetBytes(piece);
         var symbols = new List<string>(bytes.Length);
-        foreach (var b in bytes)
+        for (int i = 0; i < bytes.Length; i++)
         {
-            symbols.Add(ByteEncoder.ByteToChar(b).ToString());
+            symbols.Add(new string(ByteEncoder.ByteToChar(bytes[i]), 1));
         }
 
         ApplyMerges(symbols);
@@ -241,7 +241,7 @@ public sealed partial class BpeTokenizer : ITokenizer
                 continue;
             }
 
-            values[left] = values[left] + values[right];
+            values[left] = string.Concat(values[left], values[right]);
             alive[right] = false;
 
             int rightNext = next[right];
