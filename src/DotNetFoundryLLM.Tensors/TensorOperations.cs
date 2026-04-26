@@ -258,4 +258,22 @@ public static class TensorOperations
             x[i * 2 + 1] = x0 * sin + x1 * cos;
         }
     }
+
+    /// <summary>
+    /// Applies Rotary Position Embeddings (RoPE) to query/key vectors in-place using precomputed inverse frequencies.
+    /// </summary>
+    /// <param name="x">The vector to rotate (headDim elements).</param>
+    /// <param name="scaledPosition">The scaled token position (may be fractional).</param>
+    /// <param name="invFreqs">Precomputed inverse frequencies (1/Pow(baseFreq, 2i/headDim)); length = headDim / 2.</param>
+    public static void ApplyRopeWithInvFreqs(Span<float> x, float scaledPosition, ReadOnlySpan<float> invFreqs)
+    {
+        for (int i = 0; i < invFreqs.Length; i++)
+        {
+            float theta = scaledPosition * invFreqs[i];
+            float cos = MathF.Cos(theta), sin = MathF.Sin(theta);
+            float x0 = x[i * 2], x1 = x[i * 2 + 1];
+            x[i * 2]     = x0 * cos - x1 * sin;
+            x[i * 2 + 1] = x0 * sin + x1 * cos;
+        }
+    }
 }
