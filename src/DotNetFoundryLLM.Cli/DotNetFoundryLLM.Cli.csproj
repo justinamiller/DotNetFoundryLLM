@@ -3,6 +3,10 @@
     <OutputType>Exe</OutputType>
     <RootNamespace>DotNetFoundryLLM.Cli</RootNamespace>
     <AssemblyName>DotNetFoundryLLM.Cli</AssemblyName>
+    <PackageId>DotNetFoundryLLM.Cli</PackageId>
+    <Description>CLI tool for DotNetFoundryLLM - reserved for a future release and not functional in v1.0.0.</Description>
+    <PackageTags>llm;inference;gguf;dotnet;ai;openai</PackageTags>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Hosting" />

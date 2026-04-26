@@ -2,6 +2,10 @@
   <PropertyGroup>
     <RootNamespace>DotNetFoundryLLM.Sampling</RootNamespace>
     <AssemblyName>DotNetFoundryLLM.Sampling</AssemblyName>
+    <PackageId>DotNetFoundryLLM.Sampling</PackageId>
+    <Description>Top-K and Top-P (nucleus) sampling with temperature and seed support for LLM inference.</Description>
+    <PackageTags>llm;inference;gguf;dotnet;ai;openai</PackageTags>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />

@@ -2,6 +2,10 @@
   <PropertyGroup>
     <RootNamespace>DotNetFoundryLLM.ModelFormats.Gguf</RootNamespace>
     <AssemblyName>DotNetFoundryLLM.ModelFormats.Gguf</AssemblyName>
+    <PackageId>DotNetFoundryLLM.ModelFormats.Gguf</PackageId>
+    <Description>GGUF model file format loader with full metadata and tensor support.</Description>
+    <PackageTags>llm;inference;gguf;dotnet;ai;openai</PackageTags>
+    <IsPackable>true</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />

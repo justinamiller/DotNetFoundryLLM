@@ -1,5 +1,6 @@
 namespace DotNetFoundryLLM.Hosting;
 
-// This namespace is reserved for Phase 2+ implementation.
-// Placeholder to ensure the project compiles.
+/// <summary>
+/// This component is a placeholder for a future release. It is not functional in v1.0.0.
+/// </summary>
 internal static class Placeholder { }

@@ -2,6 +2,10 @@
   <PropertyGroup>
     <RootNamespace>DotNetFoundryLLM.Embeddings</RootNamespace>
     <AssemblyName>DotNetFoundryLLM.Embeddings</AssemblyName>
+    <PackageId>DotNetFoundryLLM.Embeddings</PackageId>
+    <Description>Embeddings generation component - reserved for a future release and not functional in v1.0.0.</Description>
+    <PackageTags>llm;inference;gguf;dotnet;ai;openai</PackageTags>
+    <IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../DotNetFoundryLLM.Abstractions/DotNetFoundryLLM.Abstractions.csproj" />
