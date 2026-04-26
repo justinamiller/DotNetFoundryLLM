@@ -505,10 +505,8 @@ public static class Dequantizer
 
     private static void DecodeKScaleMin(ReadOnlySpan<byte> packed, int groupIndex, out int scale, out int min)
     {
-        if ((uint)groupIndex >= 8)
-        {
-            throw new ArgumentOutOfRangeException(nameof(groupIndex), groupIndex, "QK group index must be in [0,7].");
-        }
+        System.Diagnostics.Debug.Assert((uint)groupIndex < 8,
+            "DecodeKScaleMin: groupIndex must be in [0,7].");
 
         if (groupIndex < 4)
         {

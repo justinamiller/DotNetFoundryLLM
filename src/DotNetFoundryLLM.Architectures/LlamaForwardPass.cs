@@ -134,13 +134,15 @@ public sealed class LlamaForwardPass : IForwardPass
     /// <summary>Applies RoPE independently to each head's slice of a [numHeads × headDim] vector.</summary>
     private void ApplyRopeAllHeads(float[] vec, int position, int numHeads, int headDim)
     {
+        float scaledPos = ShouldScaleRope(_cfg.RopeScalingType) && _cfg.RopeScalingFactor > 0f
+            ? position / _cfg.RopeScalingFactor
+            : (float)position;
+
         for (int h = 0; h < numHeads; h++)
         {
-            float scalingFactor = ShouldScaleRope(_cfg.RopeScalingType) ? _cfg.RopeScalingFactor : 1.0f;
-            int scaledPosition = scalingFactor > 0f ? (int)(position / scalingFactor) : position;
             TensorOperations.ApplyRope(
                 vec.AsSpan(h * headDim, headDim),
-                scaledPosition,
+                scaledPos,
                 _ropeFreqs);
         }
     }
@@ -232,7 +234,6 @@ public sealed class LlamaForwardPass : IForwardPass
     /// <summary>
     /// Computes <c>dst[i] = Σ_j weight[i*inDim + j] * src[j]</c> for <c>i</c> in [0, outDim).
     /// </summary>
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     private static void LinearProjection(
         ReadOnlySpan<float> src,
         float[] weight,

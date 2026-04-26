@@ -39,7 +39,6 @@ public static class TensorOperations
     }
 
     /// <summary>Computes RMS norm over <paramref name="x"/> using scale <paramref name="w"/>, writing to <paramref name="dst"/>.</summary>
-    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveInlining)]
     public static void RmsNorm(ReadOnlySpan<float> x, ReadOnlySpan<float> w, Span<float> dst, float eps = 1e-5f)
     {
         if (x.Length != w.Length || x.Length != dst.Length)
@@ -50,10 +49,8 @@ public static class TensorOperations
         float sumSq = TensorPrimitives.Dot(x, x);
         float rms = 1.0f / MathF.Sqrt(sumSq / x.Length + eps);
 
-        for (int i = 0; i < x.Length; i++)
-        {
-            dst[i] = x[i] * rms * w[i];
-        }
+        TensorPrimitives.Multiply(x, rms, dst);   // dst = x * rms
+        TensorPrimitives.Multiply(dst, w, dst);   // dst = dst * w
     }
 
     /// <summary>Applies the SiLU activation (x * sigmoid(x)) element-wise in-place.</summary>
@@ -92,16 +89,20 @@ public static class TensorOperations
     /// <summary>Computes Gemma-style RMS norm over <paramref name="x"/> using scale <c>1 + weight[i]</c>, writing to <paramref name="dst"/>.</summary>
     public static void GemmaRmsNorm(ReadOnlySpan<float> x, ReadOnlySpan<float> weight, Span<float> dst)
     {
-        float sumSq = 0f;
-        for (int i = 0; i < x.Length; i++)
-        {
-            sumSq += x[i] * x[i];
-        }
-
+        float sumSq = TensorPrimitives.Dot(x, x);
         float rms = 1f / MathF.Sqrt(sumSq / x.Length + 1e-6f);
-        for (int i = 0; i < x.Length; i++)
+
+        float[] tmp = ArrayPool<float>.Shared.Rent(x.Length);
+        try
         {
-            dst[i] = x[i] * rms * (1f + weight[i]);
+            var tmpSpan = tmp.AsSpan(0, x.Length);
+            TensorPrimitives.Multiply(x, rms, tmpSpan);           // tmp = x * rms
+            TensorPrimitives.Add(weight, 1f, dst);                // dst = 1 + weight
+            TensorPrimitives.Multiply(tmpSpan, dst, dst);         // dst = (x * rms) * (1 + weight)
+        }
+        finally
+        {
+            ArrayPool<float>.Shared.Return(tmp);
         }
     }
 
@@ -119,10 +120,9 @@ public static class TensorOperations
     public static void SoftCap(Span<float> x, float cap)
     {
         float inv = 1f / cap;
-        for (int i = 0; i < x.Length; i++)
-        {
-            x[i] = MathF.Tanh(x[i] * inv) * cap;
-        }
+        TensorPrimitives.Multiply(x, inv, x);   // x = x / cap
+        TensorPrimitives.Tanh(x, x);            // x = tanh(x / cap)
+        TensorPrimitives.Multiply(x, cap, x);   // x = tanh(x / cap) * cap
     }
 
     /// <summary>
@@ -230,6 +230,24 @@ public static class TensorOperations
     /// <param name="position">The token position.</param>
     /// <param name="freqs">Precomputed base frequencies (length = headDim / 2).</param>
     public static void ApplyRope(Span<float> x, int position, ReadOnlySpan<float> freqs)
+    {
+        for (int i = 0; i < freqs.Length; i++)
+        {
+            float theta = position * freqs[i];
+            float cos = MathF.Cos(theta), sin = MathF.Sin(theta);
+            float x0 = x[i * 2], x1 = x[i * 2 + 1];
+            x[i * 2]     = x0 * cos - x1 * sin;
+            x[i * 2 + 1] = x0 * sin + x1 * cos;
+        }
+    }
+
+    /// <summary>
+    /// Applies Rotary Position Embeddings (RoPE) to query/key vectors in-place using precomputed frequencies and float position.
+    /// </summary>
+    /// <param name="x">The vector to rotate (headDim elements).</param>
+    /// <param name="position">The token position (may be fractional for scaled contexts).</param>
+    /// <param name="freqs">Precomputed base frequencies (length = headDim / 2).</param>
+    public static void ApplyRope(Span<float> x, float position, ReadOnlySpan<float> freqs)
     {
         for (int i = 0; i < freqs.Length; i++)
         {

@@ -140,6 +140,16 @@ public sealed class LlamaLanguageModel : ILanguageModel
             prefillSw.Stop();
             prefillMs = prefillSw.ElapsedMilliseconds;
 
+            if (kvCache.WasEvicted)
+            {
+#pragma warning disable CA1848
+                _logger.LogWarning(
+                    "KV cache was evicted during prefill for model {ModelFamily}. " +
+                    "Context exceeds max length {MaxContextLength}; oldest tokens were discarded.",
+                    Metadata.ModelFamily, _maxContextLength);
+#pragma warning restore CA1848
+            }
+
             int nextToken = promptIds.Length > 0 ? promptIds[^1] : _bosTokenId;
 
             var stopSeqs = opts.StopSequences;
@@ -155,6 +165,15 @@ public sealed class LlamaLanguageModel : ILanguageModel
                 cancellationToken.ThrowIfCancellationRequested();
 
                 forward.Forward(nextToken, position++, kvCache);
+
+                if (kvCache.WasEvicted)
+                {
+#pragma warning disable CA1848
+                    _logger.LogWarning(
+                        "KV cache evicted at generation step {Step} for model {ModelFamily}.",
+                        step, Metadata.ModelFamily);
+#pragma warning restore CA1848
+                }
 
                 forward.Logits.CopyTo(logitsBuf);
 
