@@ -47,4 +47,5 @@
     <Project Path="tools/DotNetFoundryLLM.Tools.GgufInspector/DotNetFoundryLLM.Tools.GgufInspector.csproj" />
     <Project Path="tools/DotNetFoundryLLM.Tools.TokenizerProbe/DotNetFoundryLLM.Tools.TokenizerProbe.csproj" />
   </Folder>
+  <Project Path="BenchmarkSuite1/BenchmarkSuite1.csproj" />
 </Solution>
