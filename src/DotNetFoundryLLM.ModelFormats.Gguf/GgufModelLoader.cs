@@ -159,7 +159,7 @@ public sealed class GgufModelLoader : IModelLoader
             SlidingWindowSize = (int)GetUInt(meta, "mistral.attention.sliding_window", (ulong)int.MaxValue)
         };
 
-        var weights = LoadWeights(gguf, new LlamaConfig
+        var llamaConfig = new LlamaConfig
         {
             Architecture = config.Architecture,
             ModelFamily = config.ModelFamily,
@@ -175,42 +175,11 @@ public sealed class GgufModelLoader : IModelLoader
             RopeScalingType = config.RopeScalingType,
             BosTokenId = config.BosTokenId,
             EosTokenId = config.EosTokenId,
-        });
-        var tokenizer = BuildTokenizer(meta, new LlamaConfig
-        {
-            Architecture = config.Architecture,
-            ModelFamily = config.ModelFamily,
-            LayerCount = config.LayerCount,
-            HiddenSize = config.HiddenSize,
-            IntermediateSize = config.IntermediateSize,
-            NumHeads = config.NumHeads,
-            NumKvHeads = config.NumKvHeads,
-            MaxContextLength = config.MaxContextLength,
-            VocabSize = config.VocabSize,
-            RopeBaseFreq = config.RopeBaseFreq,
-            RopeScalingFactor = config.RopeScalingFactor,
-            RopeScalingType = config.RopeScalingType,
-            BosTokenId = config.BosTokenId,
-            EosTokenId = config.EosTokenId,
-        });
+        };
 
-        ulong paramCount = EstimateParameterCount(new LlamaConfig
-        {
-            Architecture = config.Architecture,
-            ModelFamily = config.ModelFamily,
-            LayerCount = config.LayerCount,
-            HiddenSize = config.HiddenSize,
-            IntermediateSize = config.IntermediateSize,
-            NumHeads = config.NumHeads,
-            NumKvHeads = config.NumKvHeads,
-            MaxContextLength = config.MaxContextLength,
-            VocabSize = config.VocabSize,
-            RopeBaseFreq = config.RopeBaseFreq,
-            RopeScalingFactor = config.RopeScalingFactor,
-            RopeScalingType = config.RopeScalingType,
-            BosTokenId = config.BosTokenId,
-            EosTokenId = config.EosTokenId,
-        });
+        var weights = LoadWeights(gguf, llamaConfig);
+        var tokenizer = BuildTokenizer(meta, llamaConfig);
+        ulong paramCount = EstimateParameterCount(llamaConfig);
         var rawMetadata = meta.ToDictionary(kv => kv.Key, kv => kv.Value.AsObject() ?? (object)string.Empty);
         rawMetadata["chat_template_family"] = _chatTemplates.ForFamily(config.ModelFamily).ModelFamily;
         var modelMeta = new ModelMetadata(

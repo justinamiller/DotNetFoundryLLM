@@ -21,6 +21,7 @@ public sealed class MistralForwardPass : IForwardPass
     private readonly float[] _ffnBuf;
     private readonly float[] _ffnUp;
     private readonly float[] _logits;
+    private readonly float[] _ropeInvFreqs;
 
     /// <summary>Initializes a forward-pass engine for the given weights and configuration.</summary>
     public MistralForwardPass(LlamaWeights weights, MistralConfig config)
@@ -45,6 +46,14 @@ public sealed class MistralForwardPass : IForwardPass
         _ffnBuf = new float[_cfg.IntermediateSize];
         _ffnUp = new float[_cfg.IntermediateSize];
         _logits = new float[_cfg.VocabSize];
+
+        // Precompute RoPE inverse frequencies to eliminate per-token Pow calls
+        int half = _cfg.HeadDim / 2;
+        _ropeInvFreqs = new float[half];
+        for (int i = 0; i < half; i++)
+        {
+            _ropeInvFreqs[i] = 1f / MathF.Pow(_cfg.RopeBaseFreq, 2f * i / _cfg.HeadDim);
+        }
     }
 
     /// <inheritdoc />
@@ -92,14 +101,16 @@ public sealed class MistralForwardPass : IForwardPass
 
     private void ApplyRopeAllHeads(float[] vec, int position, int numHeads, int headDim)
     {
+        float scaledPos = ShouldScaleRope(_cfg.RopeScalingType) && _cfg.RopeScalingFactor > 0f
+            ? position / _cfg.RopeScalingFactor
+            : (float)position;
+
         for (int h = 0; h < numHeads; h++)
         {
             TensorOperations.ApplyRope(
                 vec.AsSpan(h * headDim, headDim),
-                position,
-                headDim,
-                _cfg.RopeBaseFreq,
-                ShouldScaleRope(_cfg.RopeScalingType) ? _cfg.RopeScalingFactor : 1.0f);
+                scaledPos,
+                _ropeInvFreqs);
         }
     }
 

@@ -1,9 +1,17 @@
 using System.Buffers;
+using System.Numerics.Tensors;
 using DotNetFoundryLLM.Abstractions;
 using DotNetFoundryLLM.Core;
 using DotNetFoundryLLM.Tensors;
 
 namespace DotNetFoundryLLM.Sampling;
+
+file readonly struct DescendingProbComparer : System.Collections.Generic.IComparer<int>
+{
+    private readonly float[] _p;
+    internal DescendingProbComparer(float[] p) => _p = p;
+    public int Compare(int a, int b) => _p[b].CompareTo(_p[a]);
+}
 
 /// <summary>
 /// Top-P (nucleus) sampler: after applying softmax, retains the smallest set of tokens whose
@@ -58,7 +66,7 @@ public sealed class TopPSampler : ISampler
 
         int length = probs.Length;
         int[] indices = ArrayPool<int>.Shared.Rent(length);
-        float[] probsArray = ArrayPool<float>.Shared.Rent(length);
+        float[] probsCopy = ArrayPool<float>.Shared.Rent(length);
 
         try
         {
@@ -67,8 +75,8 @@ public sealed class TopPSampler : ISampler
                 indices[i] = i;
             }
 
-            probs.CopyTo(probsArray.AsSpan(0, length));
-            Array.Sort(indices, (a, b) => probsArray[b].CompareTo(probsArray[a]));
+            probs.CopyTo(probsCopy.AsSpan(0, length));
+            Array.Sort(indices, 0, length, new DescendingProbComparer(probsCopy));
 
             float cumulative = 0f;
             bool nucleusReached = false;
@@ -88,24 +96,16 @@ public sealed class TopPSampler : ISampler
                 }
             }
 
-            float sum = 0f;
-            foreach (var v in probs)
-            {
-                sum += v;
-            }
-
+            float sum = TensorPrimitives.Sum(probs);
             if (sum > 0f)
             {
-                for (int i = 0; i < probs.Length; i++)
-                {
-                    probs[i] /= sum;
-                }
+                TensorPrimitives.Divide(probs, sum, probs);
             }
         }
         finally
         {
             ArrayPool<int>.Shared.Return(indices);
-            ArrayPool<float>.Shared.Return(probsArray);
+            ArrayPool<float>.Shared.Return(probsCopy);
         }
     }
 }

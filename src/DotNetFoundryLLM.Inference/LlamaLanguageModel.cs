@@ -139,6 +139,16 @@ public sealed class LlamaLanguageModel : ILanguageModel
             prefillSw.Stop();
             prefillMs = prefillSw.ElapsedMilliseconds;
 
+            if (kvCache.WasEvicted)
+            {
+#pragma warning disable CA1848
+                _logger.LogWarning(
+                    "KV cache was evicted during prefill for model {ModelFamily}. " +
+                    "Context exceeds max length {MaxContextLength}; oldest tokens were discarded.",
+                    Metadata.ModelFamily, _maxContextLength);
+#pragma warning restore CA1848
+            }
+
             int nextToken = promptIds.Length > 0 ? promptIds[^1] : _bosTokenId;
 
             var stopSeqs = opts.StopSequences;
@@ -155,114 +165,131 @@ public sealed class LlamaLanguageModel : ILanguageModel
 
                 forward.Forward(nextToken, position++, kvCache);
 
-                var logits = new float[forward.Logits.Length];
-                forward.Logits.CopyTo(logits);
-
-                if (opts.RepetitionPenalty != 1.0f)
+                if (kvCache.WasEvicted)
                 {
-                    ApplyRepetitionPenalty(logits, generated, opts.RepetitionPenalty);
+#pragma warning disable CA1848
+                    _logger.LogWarning(
+                        "KV cache evicted at generation step {Step} for model {ModelFamily}.",
+                        step, Metadata.ModelFamily);
+#pragma warning restore CA1848
                 }
 
-                float logProb = 0f;
-                IReadOnlyList<LogProbEntry>? topAlternatives = null;
-
-                if (opts.ReturnLogProbs)
+                int vocabSize = forward.Logits.Length;
+                float[] logits = ArrayPool<float>.Shared.Rent(vocabSize);
+                try
                 {
-                    float[] rawLogits = ArrayPool<float>.Shared.Rent(logits.Length);
-                    try
+                    forward.Logits.CopyTo(logits.AsSpan(0, vocabSize));
+
+                    if (opts.RepetitionPenalty != 1.0f)
                     {
-                        var rawLogitsSpan = rawLogits.AsSpan(0, logits.Length);
-                        logits.CopyTo(rawLogitsSpan);
+                        ApplyRepetitionPenalty(logits.AsSpan(0, vocabSize), generated, opts.RepetitionPenalty);
+                    }
 
-                        nextToken = sampler.Sample(logits);
+                    float logProb = 0f;
+                    IReadOnlyList<LogProbEntry>? topAlternatives = null;
 
-                        TensorOperations.Softmax(rawLogitsSpan);
-                        logProb = MathF.Log(MathF.Max(rawLogitsSpan[nextToken], 1e-10f));
-
-                        if (topLogProbsCount > 0)
+                    if (opts.ReturnLogProbs)
+                    {
+                        float[] rawLogits = ArrayPool<float>.Shared.Rent(vocabSize);
+                        try
                         {
-                            topAlternatives = BuildTopAlternatives(rawLogitsSpan, topLogProbsCount);
+                            var rawLogitsSpan = rawLogits.AsSpan(0, vocabSize);
+                            logits.AsSpan(0, vocabSize).CopyTo(rawLogitsSpan);
+
+                            nextToken = sampler.Sample(logits.AsSpan(0, vocabSize));
+
+                            TensorOperations.Softmax(rawLogitsSpan);
+                            logProb = MathF.Log(MathF.Max(rawLogitsSpan[nextToken], 1e-10f));
+
+                            if (topLogProbsCount > 0)
+                            {
+                                topAlternatives = BuildTopAlternatives(rawLogitsSpan, topLogProbsCount);
+                            }
+                        }
+                        finally
+                        {
+                            ArrayPool<float>.Shared.Return(rawLogits);
                         }
                     }
-                    finally
+                    else
                     {
-                        ArrayPool<float>.Shared.Return(rawLogits);
+                        nextToken = sampler.Sample(logits.AsSpan(0, vocabSize));
                     }
-                }
-                else
-                {
-                    nextToken = sampler.Sample(logits);
-                }
 
-                if (generated.Count == 0)
-                {
-                    ttftMs = sw.ElapsedMilliseconds;
-                }
-
-                generated.Add(nextToken);
-
-                bool isEos = nextToken == _eosTokenId;
-                string tokenText = _tokenizer.DecodeToken(nextToken);
-
-                bool hitStop = false;
-                if (stopSeqs is { Count: > 0 })
-                {
-                    stopBuffer.Append(tokenText);
-                    string buffered = stopBuffer.ToString();
-                    foreach (var seq in stopSeqs)
+                    if (generated.Count == 0)
                     {
-                        if (buffered.Contains(seq, StringComparison.Ordinal))
+                        ttftMs = sw.ElapsedMilliseconds;
+                    }
+
+                    generated.Add(nextToken);
+
+                    bool isEos = nextToken == _eosTokenId;
+                    string tokenText = _tokenizer.DecodeToken(nextToken);
+
+                    bool hitStop = false;
+                    if (stopSeqs is { Count: > 0 })
+                    {
+                        stopBuffer.Append(tokenText);
+                        string buffered = stopBuffer.ToString();
+                        foreach (var seq in stopSeqs)
                         {
-                            hitStop = true;
-                            break;
+                            if (buffered.Contains(seq, StringComparison.Ordinal))
+                            {
+                                hitStop = true;
+                                break;
+                            }
+                        }
+
+                        if (maxStopLen > 0 && stopBuffer.Length > maxStopLen * 2)
+                        {
+                            stopBuffer.Remove(0, stopBuffer.Length - maxStopLen);
                         }
                     }
 
-                    if (maxStopLen > 0 && stopBuffer.Length > maxStopLen * 2)
+                    bool finished = isEos || hitStop || step == opts.MaxTokens - 1;
+                    string? reason = isEos ? "stop"
+                        : hitStop ? "stop_sequence"
+                        : step == opts.MaxTokens - 1 ? "length"
+                        : null;
+
+                    var usageInfo = finished
+                        ? new Usage(promptIds.Length, generated.Count, promptIds.Length + generated.Count)
+                        : null;
+
+                    long elapsedDecodeMs = Math.Max(0, sw.ElapsedMilliseconds - prefillMs);
+
+                    if (opts.ReturnLogProbs)
                     {
-                        stopBuffer.Remove(0, stopBuffer.Length - maxStopLen);
+                        tokenInsights?.Add(new TokenInsight(
+                            step,
+                            nextToken,
+                            tokenText,
+                            logProb,
+                            elapsedDecodeMs,
+                            topAlternatives));
                     }
+
+                    yield return new TokenStreamChunk(
+                        new Token(nextToken, tokenText, logProb),
+                        finished,
+                        reason,
+                        usageInfo,
+                        opts.ReturnLogProbs
+                            ? new TokenBreakdown(step, elapsedDecodeMs, topAlternatives)
+                            : null);
+
+                    if (finished)
+                    {
+                        finishReason = reason ?? "stop";
+                        break;
+                    }
+
+                    await Task.Yield();
                 }
-
-                bool finished = isEos || hitStop || step == opts.MaxTokens - 1;
-                string? reason = isEos ? "stop"
-                    : hitStop ? "stop_sequence"
-                    : step == opts.MaxTokens - 1 ? "length"
-                    : null;
-
-                var usageInfo = finished
-                    ? new Usage(promptIds.Length, generated.Count, promptIds.Length + generated.Count)
-                    : null;
-
-                long elapsedDecodeMs = Math.Max(0, sw.ElapsedMilliseconds - prefillMs);
-
-                if (opts.ReturnLogProbs)
+                finally
                 {
-                    tokenInsights?.Add(new TokenInsight(
-                        step,
-                        nextToken,
-                        tokenText,
-                        logProb,
-                        elapsedDecodeMs,
-                        topAlternatives));
+                    ArrayPool<float>.Shared.Return(logits);
                 }
-
-                yield return new TokenStreamChunk(
-                    new Token(nextToken, tokenText, logProb),
-                    finished,
-                    reason,
-                    usageInfo,
-                    opts.ReturnLogProbs
-                        ? new TokenBreakdown(step, elapsedDecodeMs, topAlternatives)
-                        : null);
-
-                if (finished)
-                {
-                    finishReason = reason ?? "stop";
-                    break;
-                }
-
-                await Task.Yield();
             }
 
             if (finishReason == "unknown")
@@ -327,7 +354,7 @@ public sealed class LlamaLanguageModel : ILanguageModel
             opts.Seed.HasValue ? (ulong)opts.Seed.Value : 0UL);
     }
 
-    private static void ApplyRepetitionPenalty(float[] logits, List<int> generated, float penalty)
+    private static void ApplyRepetitionPenalty(Span<float> logits, List<int> generated, float penalty)
     {
         foreach (int id in generated)
         {
