@@ -1,9 +1,9 @@
 namespace DotNetFoundryLLM.Architectures;
 
 /// <summary>
-/// Hyperparameters for a LLaMA-family transformer model, extracted from GGUF metadata.
+/// Hyperparameters for a Gemma 2-family transformer model, extracted from GGUF metadata.
 /// </summary>
-public sealed class LlamaConfig
+public sealed class Gemma2Config
 {
     /// <summary>Number of transformer layers (blocks).</summary>
     public required int LayerCount { get; init; }
@@ -17,14 +17,14 @@ public sealed class LlamaConfig
     /// <summary>Number of query attention heads.</summary>
     public required int NumHeads { get; init; }
 
-    /// <summary>
-    /// Number of key-value attention heads.
-    /// Equal to <see cref="NumHeads"/> for standard MHA; smaller for GQA/MQA.
-    /// </summary>
+    /// <summary>Number of key-value attention heads.</summary>
     public required int NumKvHeads { get; init; }
 
-    /// <summary>Dimension per attention head (<see cref="HiddenSize"/> / <see cref="NumHeads"/>).</summary>
-    public int HeadDim => HiddenSize / NumHeads;
+    /// <summary>Optional explicit attention head dimension override.</summary>
+    public int HeadDimOverride { get; init; }
+
+    /// <summary>Dimension per attention head.</summary>
+    public int HeadDim => HeadDimOverride > 0 ? HeadDimOverride : HiddenSize / NumHeads;
 
     /// <summary>Total dimension of the concatenated query vectors.</summary>
     public int QueryDim => NumHeads * HeadDim;
@@ -47,19 +47,27 @@ public sealed class LlamaConfig
     /// <summary>RoPE scaling type reported by GGUF metadata.</summary>
     public string RopeScalingType { get; init; } = "none";
 
+    /// <summary>Sliding-window attention size for local-attention layers.</summary>
+    public int SlidingWindowSize { get; init; } = int.MaxValue;
+
+    /// <summary>Attention-logit softcap value. Zero disables softcapping.</summary>
+    public float AttnLogitSoftcap { get; init; }
+
+    /// <summary>Final-logit softcap value. Zero disables softcapping.</summary>
+    public float FinalLogitSoftcap { get; init; }
+
+    /// <summary>Attention scale applied before softmax.</summary>
+    public float QueryPreAttnScalar { get; init; }
+
     /// <summary>Token ID for the beginning-of-sequence special token.</summary>
     public int BosTokenId { get; init; } = 1;
 
     /// <summary>Token ID for the end-of-sequence special token.</summary>
     public int EosTokenId { get; init; } = 2;
 
-    /// <summary>Architecture string as stored in GGUF metadata (e.g., "llama").</summary>
-    public string Architecture { get; init; } = "llama";
+    /// <summary>Architecture string as stored in GGUF metadata.</summary>
+    public string Architecture { get; init; } = "gemma2";
 
-    /// <summary>Model family name (e.g., "llama3", "mistral").</summary>
-    public string ModelFamily { get; init; } = "llama";
-
-    /// <summary>Returns a human-readable description of the configuration.</summary>
-    public override string ToString() =>
-        $"{Architecture} layers={LayerCount} hidden={HiddenSize} heads={NumHeads}/{NumKvHeads} ffn={IntermediateSize} vocab={VocabSize}";
+    /// <summary>Model family name.</summary>
+    public string ModelFamily { get; init; } = "gemma2";
 }

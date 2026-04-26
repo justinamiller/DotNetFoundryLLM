@@ -1,9 +1,9 @@
 namespace DotNetFoundryLLM.Architectures;
 
 /// <summary>
-/// Hyperparameters for a LLaMA-family transformer model, extracted from GGUF metadata.
+/// Hyperparameters for a Mistral-family transformer model, extracted from GGUF metadata.
 /// </summary>
-public sealed class LlamaConfig
+public sealed class MistralConfig
 {
     /// <summary>Number of transformer layers (blocks).</summary>
     public required int LayerCount { get; init; }
@@ -17,13 +17,10 @@ public sealed class LlamaConfig
     /// <summary>Number of query attention heads.</summary>
     public required int NumHeads { get; init; }
 
-    /// <summary>
-    /// Number of key-value attention heads.
-    /// Equal to <see cref="NumHeads"/> for standard MHA; smaller for GQA/MQA.
-    /// </summary>
+    /// <summary>Number of key-value attention heads.</summary>
     public required int NumKvHeads { get; init; }
 
-    /// <summary>Dimension per attention head (<see cref="HiddenSize"/> / <see cref="NumHeads"/>).</summary>
+    /// <summary>Dimension per attention head.</summary>
     public int HeadDim => HiddenSize / NumHeads;
 
     /// <summary>Total dimension of the concatenated query vectors.</summary>
@@ -53,13 +50,12 @@ public sealed class LlamaConfig
     /// <summary>Token ID for the end-of-sequence special token.</summary>
     public int EosTokenId { get; init; } = 2;
 
-    /// <summary>Architecture string as stored in GGUF metadata (e.g., "llama").</summary>
-    public string Architecture { get; init; } = "llama";
+    /// <summary>Architecture string as stored in GGUF metadata.</summary>
+    public string Architecture { get; init; } = "mistral";
 
-    /// <summary>Model family name (e.g., "llama3", "mistral").</summary>
-    public string ModelFamily { get; init; } = "llama";
+    /// <summary>Model family name.</summary>
+    public string ModelFamily { get; init; } = "mistral";
 
-    /// <summary>Returns a human-readable description of the configuration.</summary>
-    public override string ToString() =>
-        $"{Architecture} layers={LayerCount} hidden={HiddenSize} heads={NumHeads}/{NumKvHeads} ffn={IntermediateSize} vocab={VocabSize}";
+    /// <summary>Sliding-window attention size. <see cref="int.MaxValue"/> disables windowing.</summary>
+    public int SlidingWindowSize { get; init; } = int.MaxValue;
 }

@@ -21,6 +21,8 @@ public sealed class ChatTemplateRegistry
     private readonly Dictionary<string, IChatTemplate> _templates =
         new(StringComparer.OrdinalIgnoreCase);
 
+    private static readonly IChatTemplate s_defaultTemplate = new Llama3ChatTemplate();
+
     /// <summary>
     /// Initializes a new registry pre-populated with all built-in templates.
     /// </summary>
@@ -53,6 +55,15 @@ public sealed class ChatTemplateRegistry
     {
         ArgumentNullException.ThrowIfNull(modelFamily);
         return _templates.TryGetValue(modelFamily, out template);
+    }
+
+    /// <summary>
+    /// Returns the template for the given model family, or the built-in LLaMA 3 template when no match is registered.
+    /// </summary>
+    public IChatTemplate ForFamily(string modelFamily)
+    {
+        ArgumentNullException.ThrowIfNull(modelFamily);
+        return _templates.TryGetValue(modelFamily, out var template) ? template : s_defaultTemplate;
     }
 
     /// <summary>

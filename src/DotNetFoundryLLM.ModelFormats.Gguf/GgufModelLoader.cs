@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using DotNetFoundryLLM.Abstractions;
 using DotNetFoundryLLM.Architectures;
+using DotNetFoundryLLM.ChatTemplates;
 using DotNetFoundryLLM.Core;
 using DotNetFoundryLLM.Quantization;
 using DotNetFoundryLLM.Sampling;
@@ -20,6 +21,7 @@ public sealed class GgufModelLoader : IModelLoader
 {
     private static readonly string[] s_extensions = [".gguf"];
     private readonly IInferenceTelemetry _telemetry;
+    private readonly ChatTemplateRegistry _chatTemplates = new();
 
     /// <summary>Initializes a new GGUF model loader.</summary>
     /// <param name="telemetry">Optional inference telemetry sink.</param>
@@ -48,22 +50,10 @@ public sealed class GgufModelLoader : IModelLoader
 
         var sw = Stopwatch.StartNew();
 
-        GgufFile gguf;
         try
         {
-            gguf = await GgufReader.ReadAsync(path, cancellationToken).ConfigureAwait(false);
-        }
-        catch (ModelLoadException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            throw new ModelLoadException(path, $"Failed to read GGUF file: {ex.Message}", ex);
-        }
+            using var gguf = await GgufReader.ReadAsync(path, cancellationToken).ConfigureAwait(false);
 
-        try
-        {
             var model = Build(gguf);
 
             long fileSize = 0;
@@ -98,26 +88,252 @@ public sealed class GgufModelLoader : IModelLoader
 
     private Inference.LlamaLanguageModel Build(GgufFile gguf)
     {
-        var meta   = gguf.Metadata;
+        var meta = gguf.Metadata;
+        string arch = GetString(meta, "general.architecture", "llama");
+        return arch switch
+        {
+            "llama" or "llama3" or "llama4" => BuildLlama(gguf),
+            "mistral" => BuildMistral(gguf),
+            "gemma" or "gemma2" => BuildGemma2(gguf),
+            "qwen2" => BuildQwen2(gguf),
+            _ => throw new NotSupportedException(
+                $"Architecture '{arch}' is not supported. Supported: llama, mistral, gemma2, qwen2.")
+        };
+    }
+
+    private Inference.LlamaLanguageModel BuildLlama(GgufFile gguf)
+    {
+        var meta = gguf.Metadata;
         var config = BuildConfig(meta);
         var weights = LoadWeights(gguf, config);
         var tokenizer = BuildTokenizer(meta, config);
 
         ulong paramCount = EstimateParameterCount(config);
+        var rawMetadata = meta.ToDictionary(kv => kv.Key, kv => kv.Value.AsObject() ?? (object)string.Empty);
+        rawMetadata["chat_template_family"] = _chatTemplates.ForFamily(config.ModelFamily).ModelFamily;
         var modelMeta = new ModelMetadata(
-            Architecture:    config.Architecture,
-            ModelFamily:     config.ModelFamily,
-            ParameterCount:  paramCount,
-            ContextLength:   config.MaxContextLength,
+            Architecture: config.Architecture,
+            ModelFamily: config.ModelFamily,
+            ParameterCount: paramCount,
+            ContextLength: config.MaxContextLength,
             EmbeddingDimension: config.HiddenSize,
-            VocabSize:       config.VocabSize,
-            WeightDtype:     DType.F32,
-            RawMetadata:     meta.ToDictionary(
-                                 kv => kv.Key,
-                                 kv => kv.Value.AsObject() ?? (object)string.Empty));
+            VocabSize: config.VocabSize,
+            WeightDtype: DType.F32,
+            RawMetadata: rawMetadata);
 
         var sampler = new SamplerPipeline(temperature: 1.0f, topK: 0, topP: 1.0f, seed: 0);
-        return new Inference.LlamaLanguageModel(weights, tokenizer, sampler, modelMeta, telemetry: _telemetry);
+        return new Inference.LlamaLanguageModel(
+            weights,
+            config.LayerCount,
+            config.MaxContextLength,
+            config.KvDim,
+            config.BosTokenId,
+            config.EosTokenId,
+            () => new LlamaForwardPass(weights),
+            tokenizer,
+            sampler,
+            modelMeta,
+            telemetry: _telemetry);
+    }
+
+    private Inference.LlamaLanguageModel BuildMistral(GgufFile gguf)
+    {
+        var meta = gguf.Metadata;
+        var baseConfig = BuildConfig(meta);
+        var config = new MistralConfig
+        {
+            Architecture = "mistral",
+            ModelFamily = baseConfig.ModelFamily,
+            LayerCount = baseConfig.LayerCount,
+            HiddenSize = baseConfig.HiddenSize,
+            IntermediateSize = baseConfig.IntermediateSize,
+            NumHeads = baseConfig.NumHeads,
+            NumKvHeads = baseConfig.NumKvHeads,
+            MaxContextLength = baseConfig.MaxContextLength,
+            VocabSize = baseConfig.VocabSize,
+            RopeBaseFreq = baseConfig.RopeBaseFreq,
+            RopeScalingFactor = baseConfig.RopeScalingFactor,
+            RopeScalingType = baseConfig.RopeScalingType,
+            BosTokenId = baseConfig.BosTokenId,
+            EosTokenId = baseConfig.EosTokenId,
+            SlidingWindowSize = (int)GetUInt(meta, "mistral.attention.sliding_window", (ulong)int.MaxValue)
+        };
+
+        var weights = LoadWeights(gguf, new LlamaConfig
+        {
+            Architecture = config.Architecture,
+            ModelFamily = config.ModelFamily,
+            LayerCount = config.LayerCount,
+            HiddenSize = config.HiddenSize,
+            IntermediateSize = config.IntermediateSize,
+            NumHeads = config.NumHeads,
+            NumKvHeads = config.NumKvHeads,
+            MaxContextLength = config.MaxContextLength,
+            VocabSize = config.VocabSize,
+            RopeBaseFreq = config.RopeBaseFreq,
+            RopeScalingFactor = config.RopeScalingFactor,
+            RopeScalingType = config.RopeScalingType,
+            BosTokenId = config.BosTokenId,
+            EosTokenId = config.EosTokenId,
+        });
+        var tokenizer = BuildTokenizer(meta, new LlamaConfig
+        {
+            Architecture = config.Architecture,
+            ModelFamily = config.ModelFamily,
+            LayerCount = config.LayerCount,
+            HiddenSize = config.HiddenSize,
+            IntermediateSize = config.IntermediateSize,
+            NumHeads = config.NumHeads,
+            NumKvHeads = config.NumKvHeads,
+            MaxContextLength = config.MaxContextLength,
+            VocabSize = config.VocabSize,
+            RopeBaseFreq = config.RopeBaseFreq,
+            RopeScalingFactor = config.RopeScalingFactor,
+            RopeScalingType = config.RopeScalingType,
+            BosTokenId = config.BosTokenId,
+            EosTokenId = config.EosTokenId,
+        });
+
+        ulong paramCount = EstimateParameterCount(new LlamaConfig
+        {
+            Architecture = config.Architecture,
+            ModelFamily = config.ModelFamily,
+            LayerCount = config.LayerCount,
+            HiddenSize = config.HiddenSize,
+            IntermediateSize = config.IntermediateSize,
+            NumHeads = config.NumHeads,
+            NumKvHeads = config.NumKvHeads,
+            MaxContextLength = config.MaxContextLength,
+            VocabSize = config.VocabSize,
+            RopeBaseFreq = config.RopeBaseFreq,
+            RopeScalingFactor = config.RopeScalingFactor,
+            RopeScalingType = config.RopeScalingType,
+            BosTokenId = config.BosTokenId,
+            EosTokenId = config.EosTokenId,
+        });
+        var rawMetadata = meta.ToDictionary(kv => kv.Key, kv => kv.Value.AsObject() ?? (object)string.Empty);
+        rawMetadata["chat_template_family"] = _chatTemplates.ForFamily(config.ModelFamily).ModelFamily;
+        var modelMeta = new ModelMetadata(
+            Architecture: config.Architecture,
+            ModelFamily: config.ModelFamily,
+            ParameterCount: paramCount,
+            ContextLength: config.MaxContextLength,
+            EmbeddingDimension: config.HiddenSize,
+            VocabSize: config.VocabSize,
+            WeightDtype: DType.F32,
+            RawMetadata: rawMetadata);
+
+        var sampler = new SamplerPipeline(temperature: 1.0f, topK: 0, topP: 1.0f, seed: 0);
+        return new Inference.LlamaLanguageModel(
+            weights,
+            config.LayerCount,
+            config.MaxContextLength,
+            config.KvDim,
+            config.BosTokenId,
+            config.EosTokenId,
+            () => new MistralForwardPass(weights, config),
+            tokenizer,
+            sampler,
+            modelMeta,
+            telemetry: _telemetry);
+    }
+
+    private Inference.LlamaLanguageModel BuildGemma2(GgufFile gguf)
+    {
+        var meta = gguf.Metadata;
+        string arch = GetString(meta, "general.architecture", "gemma2");
+        string prefix = meta.ContainsKey("gemma2.block_count") ? "gemma2" : "gemma";
+        int headDimOverride = (int)GetUInt(meta, $"{prefix}.attention.key_length", 0);
+        int hiddenSize = (int)GetUInt(meta, $"{prefix}.embedding_length");
+        int numHeads = (int)GetUInt(meta, $"{prefix}.attention.head_count");
+        int headDim = headDimOverride > 0 ? headDimOverride : hiddenSize / numHeads;
+
+        var config = new Gemma2Config
+        {
+            Architecture = arch,
+            ModelFamily = GetString(meta, "general.name", arch),
+            LayerCount = (int)GetUInt(meta, $"{prefix}.block_count"),
+            HiddenSize = hiddenSize,
+            IntermediateSize = (int)GetUInt(meta, $"{prefix}.feed_forward_length"),
+            NumHeads = numHeads,
+            NumKvHeads = (int)GetUInt(meta, $"{prefix}.attention.head_count_kv", GetUInt(meta, $"{prefix}.attention.head_count")),
+            MaxContextLength = (int)GetUInt(meta, $"{prefix}.context_length", 4096),
+            VocabSize = (int)GetUInt(meta, $"{prefix}.vocab_size", GetUInt(meta, "tokenizer.ggml.tokens", 32000, arrayLength: true)),
+            RopeBaseFreq = GetFloat(meta, $"{prefix}.rope.freq_base", 10000f),
+            RopeScalingFactor = GetFloat(meta, $"{prefix}.rope.scaling.factor", GetFloat(meta, $"{prefix}.rope.freq_scale", 1.0f)),
+            RopeScalingType = GetString(meta, $"{prefix}.rope.scaling.type", "none"),
+            BosTokenId = (int)GetUInt(meta, "tokenizer.ggml.bos_token_id", 1),
+            EosTokenId = (int)GetUInt(meta, "tokenizer.ggml.eos_token_id", 2),
+            HeadDimOverride = headDimOverride,
+            SlidingWindowSize = (int)GetUInt(meta, $"{prefix}.attention.sliding_window", (ulong)int.MaxValue),
+            AttnLogitSoftcap = GetFloat(meta, $"{prefix}.attn_logit_softcapping", 0f),
+            FinalLogitSoftcap = GetFloat(meta, $"{prefix}.final_logit_softcapping", 0f),
+            QueryPreAttnScalar = GetFloat(meta, $"{prefix}.attention.query_pre_attn_scalar", 1.0f / MathF.Sqrt(headDim)),
+        };
+
+        var weights = LoadGemma2Weights(gguf, config);
+        var tokenizer = BuildTokenizer(meta, ToLlamaConfig(config));
+        ulong paramCount = EstimateParameterCount(ToLlamaConfig(config));
+        var rawMetadata = meta.ToDictionary(kv => kv.Key, kv => kv.Value.AsObject() ?? (object)string.Empty);
+        rawMetadata["chat_template_family"] = _chatTemplates.ForFamily(config.ModelFamily).ModelFamily;
+        var modelMeta = new ModelMetadata(
+            Architecture: config.Architecture,
+            ModelFamily: config.ModelFamily,
+            ParameterCount: paramCount,
+            ContextLength: config.MaxContextLength,
+            EmbeddingDimension: config.HiddenSize,
+            VocabSize: config.VocabSize,
+            WeightDtype: DType.F32,
+            RawMetadata: rawMetadata);
+
+        var sampler = new SamplerPipeline(temperature: 1.0f, topK: 0, topP: 1.0f, seed: 0);
+        return new Inference.LlamaLanguageModel(
+            weights,
+            config.LayerCount,
+            config.MaxContextLength,
+            config.KvDim,
+            config.BosTokenId,
+            config.EosTokenId,
+            () => new Gemma2ForwardPass(weights),
+            tokenizer,
+            sampler,
+            modelMeta,
+            telemetry: _telemetry);
+    }
+
+    private Inference.LlamaLanguageModel BuildQwen2(GgufFile gguf)
+    {
+        var meta = gguf.Metadata;
+        var config = BuildConfig(meta);
+        var weights = LoadQwen2Weights(gguf, config);
+        var tokenizer = BuildTokenizer(meta, config);
+
+        ulong paramCount = EstimateParameterCount(config);
+        var rawMetadata = meta.ToDictionary(kv => kv.Key, kv => kv.Value.AsObject() ?? (object)string.Empty);
+        rawMetadata["chat_template_family"] = _chatTemplates.ForFamily(config.ModelFamily).ModelFamily;
+        var modelMeta = new ModelMetadata(
+            Architecture: config.Architecture,
+            ModelFamily: config.ModelFamily,
+            ParameterCount: paramCount,
+            ContextLength: config.MaxContextLength,
+            EmbeddingDimension: config.HiddenSize,
+            VocabSize: config.VocabSize,
+            WeightDtype: DType.F32,
+            RawMetadata: rawMetadata);
+
+        var sampler = new SamplerPipeline(temperature: 1.0f, topK: 0, topP: 1.0f, seed: 0);
+        return new Inference.LlamaLanguageModel(
+            weights,
+            config.LayerCount,
+            config.MaxContextLength,
+            config.KvDim,
+            config.BosTokenId,
+            config.EosTokenId,
+            () => new Qwen2ForwardPass(weights),
+            tokenizer,
+            sampler,
+            modelMeta,
+            telemetry: _telemetry);
     }
 
     private static LlamaConfig BuildConfig(IReadOnlyDictionary<string, GgufMetadataValue> meta)
@@ -140,6 +356,9 @@ public sealed class GgufModelLoader : IModelLoader
                                     defaultVal: GetUInt(meta, "tokenizer.ggml.tokens", defaultVal: 32000,
                                         arrayLength: true)),
             RopeBaseFreq     = GetFloat(meta, $"{arch}.rope.freq_base", 10000f),
+            RopeScalingFactor = GetFloat(meta, $"{arch}.rope.scaling.factor",
+                                    GetFloat(meta, $"{arch}.rope.freq_scale", 1.0f)),
+            RopeScalingType   = GetString(meta, $"{arch}.rope.scaling.type", "none"),
             BosTokenId       = (int)GetUInt(meta, "tokenizer.ggml.bos_token_id", 1),
             EosTokenId       = (int)GetUInt(meta, "tokenizer.ggml.eos_token_id", 2),
         };
@@ -326,4 +545,97 @@ public sealed class GgufModelLoader : IModelLoader
 
         return (ulong)p;
     }
+
+    private static Gemma2Weights LoadGemma2Weights(GgufFile gguf, Gemma2Config cfg)
+    {
+        float[] tokenEmbed = LoadTensor(gguf, "token_embd.weight", (long)cfg.VocabSize * cfg.HiddenSize);
+        var attnNorm = new float[cfg.LayerCount][];
+        var postAttnNorm = new float[cfg.LayerCount][];
+        var wq = new float[cfg.LayerCount][];
+        var wk = new float[cfg.LayerCount][];
+        var wv = new float[cfg.LayerCount][];
+        var wo = new float[cfg.LayerCount][];
+        var ffnNorm = new float[cfg.LayerCount][];
+        var postFfnNorm = new float[cfg.LayerCount][];
+        var ffnGate = new float[cfg.LayerCount][];
+        var ffnUp = new float[cfg.LayerCount][];
+        var ffnDown = new float[cfg.LayerCount][];
+
+        for (int i = 0; i < cfg.LayerCount; i++)
+        {
+            attnNorm[i] = LoadTensor(gguf, $"blk.{i}.attn_norm.weight", cfg.HiddenSize);
+            postAttnNorm[i] = LoadTensor(gguf, $"blk.{i}.post_attn_norm.weight", cfg.HiddenSize);
+            wq[i] = LoadTensor(gguf, $"blk.{i}.attn_q.weight", (long)cfg.QueryDim * cfg.HiddenSize);
+            wk[i] = LoadTensor(gguf, $"blk.{i}.attn_k.weight", (long)cfg.KvDim * cfg.HiddenSize);
+            wv[i] = LoadTensor(gguf, $"blk.{i}.attn_v.weight", (long)cfg.KvDim * cfg.HiddenSize);
+            wo[i] = LoadTensor(gguf, $"blk.{i}.attn_output.weight", (long)cfg.HiddenSize * cfg.QueryDim);
+            ffnNorm[i] = LoadTensor(gguf, $"blk.{i}.ffn_norm.weight", cfg.HiddenSize);
+            postFfnNorm[i] = LoadTensor(gguf, $"blk.{i}.post_ffn_norm.weight", cfg.HiddenSize);
+            ffnGate[i] = LoadTensor(gguf, $"blk.{i}.ffn_gate.weight", (long)cfg.IntermediateSize * cfg.HiddenSize);
+            ffnUp[i] = LoadTensor(gguf, $"blk.{i}.ffn_up.weight", (long)cfg.IntermediateSize * cfg.HiddenSize);
+            ffnDown[i] = LoadTensor(gguf, $"blk.{i}.ffn_down.weight", (long)cfg.HiddenSize * cfg.IntermediateSize);
+        }
+
+        float[] outputNorm = LoadTensor(gguf, "output_norm.weight", cfg.HiddenSize);
+        float[] outputWeight = LoadTensorOptional(gguf, "output.weight", (long)cfg.VocabSize * cfg.HiddenSize) ?? tokenEmbed;
+
+        return new Gemma2Weights(cfg, tokenEmbed, attnNorm, postAttnNorm, wq, wk, wv, wo, ffnNorm, postFfnNorm, ffnGate, ffnUp, ffnDown, outputNorm, outputWeight);
+    }
+
+    private static Qwen2Weights LoadQwen2Weights(GgufFile gguf, LlamaConfig cfg)
+    {
+        float[] tokenEmbed = LoadTensor(gguf, "token_embd.weight", (long)cfg.VocabSize * cfg.HiddenSize);
+
+        var attnNorm = new float[cfg.LayerCount][];
+        var wq = new float[cfg.LayerCount][];
+        var wk = new float[cfg.LayerCount][];
+        var wv = new float[cfg.LayerCount][];
+        var wo = new float[cfg.LayerCount][];
+        var bq = new float[cfg.LayerCount][];
+        var bk = new float[cfg.LayerCount][];
+        var bv = new float[cfg.LayerCount][];
+        var ffnNorm = new float[cfg.LayerCount][];
+        var ffnGate = new float[cfg.LayerCount][];
+        var ffnUp = new float[cfg.LayerCount][];
+        var ffnDown = new float[cfg.LayerCount][];
+
+        for (int i = 0; i < cfg.LayerCount; i++)
+        {
+            attnNorm[i] = LoadTensor(gguf, $"blk.{i}.attn_norm.weight", cfg.HiddenSize);
+            wq[i] = LoadTensor(gguf, $"blk.{i}.attn_q.weight", (long)cfg.QueryDim * cfg.HiddenSize);
+            wk[i] = LoadTensor(gguf, $"blk.{i}.attn_k.weight", (long)cfg.KvDim * cfg.HiddenSize);
+            wv[i] = LoadTensor(gguf, $"blk.{i}.attn_v.weight", (long)cfg.KvDim * cfg.HiddenSize);
+            wo[i] = LoadTensor(gguf, $"blk.{i}.attn_output.weight", (long)cfg.HiddenSize * cfg.QueryDim);
+            bq[i] = LoadTensor(gguf, $"blk.{i}.attn_q.bias", cfg.QueryDim);
+            bk[i] = LoadTensor(gguf, $"blk.{i}.attn_k.bias", cfg.KvDim);
+            bv[i] = LoadTensor(gguf, $"blk.{i}.attn_v.bias", cfg.KvDim);
+            ffnNorm[i] = LoadTensor(gguf, $"blk.{i}.ffn_norm.weight", cfg.HiddenSize);
+            ffnGate[i] = LoadTensor(gguf, $"blk.{i}.ffn_gate.weight", (long)cfg.IntermediateSize * cfg.HiddenSize);
+            ffnUp[i] = LoadTensor(gguf, $"blk.{i}.ffn_up.weight", (long)cfg.IntermediateSize * cfg.HiddenSize);
+            ffnDown[i] = LoadTensor(gguf, $"blk.{i}.ffn_down.weight", (long)cfg.HiddenSize * cfg.IntermediateSize);
+        }
+
+        float[] outputNorm = LoadTensor(gguf, "output_norm.weight", cfg.HiddenSize);
+        float[] outputWeight = LoadTensorOptional(gguf, "output.weight", (long)cfg.VocabSize * cfg.HiddenSize) ?? tokenEmbed;
+
+        return new Qwen2Weights(cfg, tokenEmbed, attnNorm, wq, wk, wv, wo, bq, bk, bv, ffnNorm, ffnGate, ffnUp, ffnDown, outputNorm, outputWeight);
+    }
+
+    private static LlamaConfig ToLlamaConfig(Gemma2Config cfg) => new()
+    {
+        Architecture = cfg.Architecture,
+        ModelFamily = cfg.ModelFamily,
+        LayerCount = cfg.LayerCount,
+        HiddenSize = cfg.HiddenSize,
+        IntermediateSize = cfg.IntermediateSize,
+        NumHeads = cfg.NumHeads,
+        NumKvHeads = cfg.NumKvHeads,
+        MaxContextLength = cfg.MaxContextLength,
+        VocabSize = cfg.VocabSize,
+        RopeBaseFreq = cfg.RopeBaseFreq,
+        RopeScalingFactor = cfg.RopeScalingFactor,
+        RopeScalingType = cfg.RopeScalingType,
+        BosTokenId = cfg.BosTokenId,
+        EosTokenId = cfg.EosTokenId,
+    };
 }

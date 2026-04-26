@@ -52,6 +52,9 @@ public sealed class KvCache : IKvCache
     /// <inheritdoc />
     public int CurrentLength => _currentLength;
 
+    /// <summary>Gets whether the cache has evicted older entries since it was created or last cleared.</summary>
+    public bool WasEvicted { get; private set; }
+
     /// <inheritdoc />
     public void Append(int layer, ReadOnlySpan<float> keySlice, ReadOnlySpan<float> valueSlice)
     {
@@ -70,16 +73,15 @@ public sealed class KvCache : IKvCache
                 "Append layers sequentially for each token position.");
         }
 
-        if (_currentLength >= MaxSequenceLength)
-        {
-            throw new InvalidOperationException(
-                $"KV cache is full (capacity {MaxSequenceLength} tokens). Clear the cache or reduce input length.");
-        }
-
         if (keySlice.Length != _kvDim || valueSlice.Length != _kvDim)
         {
             throw new ArgumentException(
                 $"Key/value slice length must be {_kvDim} but got key={keySlice.Length}, value={valueSlice.Length}.");
+        }
+
+        if (_currentLength >= MaxSequenceLength)
+        {
+            EvictOldestHalf();
         }
 
         int offset = _currentLength * _kvDim;
@@ -138,11 +140,35 @@ public sealed class KvCache : IKvCache
         ObjectDisposedException.ThrowIf(_disposed, this);
         _currentLength = 0;
         _nextLayerToAppend = 0;
+        WasEvicted = false;
     }
 
     /// <inheritdoc />
     public void Dispose()
     {
         _disposed = true;
+    }
+
+    private void EvictOldestHalf()
+    {
+        int retainedLength = MaxSequenceLength / 2;
+        int sourceOffset = retainedLength * _kvDim;
+        int copyLength = (MaxSequenceLength - retainedLength) * _kvDim;
+        int clearOffset = copyLength;
+        int clearLength = sourceOffset;
+
+        for (int i = 0; i < _layerCount; i++)
+        {
+            var keys = _keys[i].AsSpan();
+            keys.Slice(sourceOffset, copyLength).CopyTo(keys);
+            keys.Slice(clearOffset, clearLength).Clear();
+
+            var values = _values[i].AsSpan();
+            values.Slice(sourceOffset, copyLength).CopyTo(values);
+            values.Slice(clearOffset, clearLength).Clear();
+        }
+
+        _currentLength = retainedLength;
+        WasEvicted = true;
     }
 }
