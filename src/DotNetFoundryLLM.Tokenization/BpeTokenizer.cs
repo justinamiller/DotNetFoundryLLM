@@ -90,7 +90,7 @@ public sealed partial class BpeTokenizer : ITokenizer
     /// </remarks>
     public string Decode(ReadOnlySpan<int> tokenIds)
     {
-        var sb = new StringBuilder(tokenIds.Length * 4);
+        var byteBuffer = new List<byte>();
 
         foreach (var id in tokenIds)
         {
@@ -99,10 +99,23 @@ public sealed partial class BpeTokenizer : ITokenizer
                 continue;
             }
 
-            sb.Append(DecodeToken(id));
+            try
+            {
+                var tokenStr = _vocab.GetToken(id);
+                foreach (var c in tokenStr)
+                {
+                    byteBuffer.Add(ByteEncoder.CharToByte(c));
+                }
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                // Skip invalid token IDs
+                continue;
+            }
         }
 
-        return sb.ToString();
+        return Encoding.UTF8.GetString(
+            System.Runtime.InteropServices.CollectionsMarshal.AsSpan(byteBuffer));
     }
 
     /// <inheritdoc />
