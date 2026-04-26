@@ -91,7 +91,7 @@ public sealed partial class BpeTokenizer : ITokenizer
     /// </remarks>
     public string Decode(ReadOnlySpan<int> tokenIds)
     {
-        var byteBuffer = new List<byte>();
+        var sb = new StringBuilder();
 
         foreach (var id in tokenIds)
         {
@@ -100,20 +100,22 @@ public sealed partial class BpeTokenizer : ITokenizer
                 continue;
             }
 
-            var tokenStr = _vocab.GetToken(id);
-            foreach (var c in tokenStr)
-            {
-                byteBuffer.Add(ByteEncoder.CharToByte(c));
-            }
+            sb.Append(DecodeToken(id));
         }
 
-        return Encoding.UTF8.GetString(byteBuffer.ToArray());
+        return sb.ToString();
     }
 
     /// <inheritdoc />
     public string DecodeToken(int tokenId)
     {
         var tokenStr = _vocab.GetToken(tokenId);
+
+        if (tokenStr.Contains('\u2581'))
+        {
+            return tokenStr.Replace('\u2581', ' ');
+        }
+
         var bytes = new byte[tokenStr.Length];
         for (int i = 0; i < tokenStr.Length; i++)
         {

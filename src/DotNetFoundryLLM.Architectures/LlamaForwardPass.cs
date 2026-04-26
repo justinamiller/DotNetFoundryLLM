@@ -33,6 +33,7 @@ public sealed class LlamaForwardPass
     private readonly float[] _v;       // [kv_dim]
     private readonly float[] _attnOut; // [q_dim]
     private readonly float[] _ffnBuf;  // [intermediate_size]
+    private readonly float[] _ffnUp;   // [intermediate_size]
     private readonly float[] _logits;  // [vocab_size]
 
     /// <summary>Initializes a forward-pass engine for the given weights.</summary>
@@ -49,6 +50,7 @@ public sealed class LlamaForwardPass
         _v       = new float[_cfg.KvDim];
         _attnOut = new float[_cfg.QueryDim];
         _ffnBuf  = new float[_cfg.IntermediateSize];
+        _ffnUp   = new float[_cfg.IntermediateSize];
         _logits  = new float[_cfg.VocabSize];
     }
 
@@ -182,14 +184,11 @@ public sealed class LlamaForwardPass
         LinearProjection(xNorm, _weights.FfnGate[layer], _ffnBuf, ffnDim);
         TensorOperations.Silu(_ffnBuf);
 
-        // Reuse _v as a temporary up-projection buffer (safe: _v is not used here).
-        var upBuf = _v.AsSpan(0, ffnDim);
-        LinearProjection(xNorm, _weights.FfnUp[layer], upBuf, ffnDim);
+        LinearProjection(xNorm, _weights.FfnUp[layer], _ffnUp, ffnDim);
 
-        // Element-wise gate * up, then down-projection back to hidden_size.
         for (int i = 0; i < ffnDim; i++)
         {
-            _ffnBuf[i] *= upBuf[i];
+            _ffnBuf[i] *= _ffnUp[i];
         }
 
         LinearProjection(_ffnBuf, _weights.FfnDown[layer], _xNorm, _cfg.HiddenSize);

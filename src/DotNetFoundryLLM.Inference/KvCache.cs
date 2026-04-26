@@ -17,6 +17,7 @@ public sealed class KvCache : IKvCache
     private readonly float[][] _values;
     private readonly int _kvDim;
     private int _currentLength;
+    private int _pendingMaxLayer = -1;
     private bool _disposed;
 
     /// <summary>
@@ -70,10 +71,14 @@ public sealed class KvCache : IKvCache
         keySlice.CopyTo(_keys[layer].AsSpan(offset, _kvDim));
         valueSlice.CopyTo(_values[layer].AsSpan(offset, _kvDim));
 
-        // Increment position only after the last layer to keep all layers in sync.
-        if (layer == _keys.Length - 1)
+        if (layer < _keys.Length - 1)
+        {
+            _pendingMaxLayer = Math.Max(_pendingMaxLayer, layer);
+        }
+        else
         {
             _currentLength++;
+            _pendingMaxLayer = -1;
         }
     }
 
@@ -81,14 +86,28 @@ public sealed class KvCache : IKvCache
     public ReadOnlySpan<float> GetKeys(int layer)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return _keys[layer].AsSpan(0, _currentLength * _kvDim);
+
+        int effectiveLength = _currentLength;
+        if (_pendingMaxLayer >= 0 && layer <= _pendingMaxLayer)
+        {
+            effectiveLength++;
+        }
+
+        return _keys[layer].AsSpan(0, effectiveLength * _kvDim);
     }
 
     /// <inheritdoc />
     public ReadOnlySpan<float> GetValues(int layer)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-        return _values[layer].AsSpan(0, _currentLength * _kvDim);
+
+        int effectiveLength = _currentLength;
+        if (_pendingMaxLayer >= 0 && layer <= _pendingMaxLayer)
+        {
+            effectiveLength++;
+        }
+
+        return _values[layer].AsSpan(0, effectiveLength * _kvDim);
     }
 
     /// <inheritdoc />
@@ -96,6 +115,7 @@ public sealed class KvCache : IKvCache
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
         _currentLength = 0;
+        _pendingMaxLayer = -1;
     }
 
     /// <inheritdoc />
